@@ -137,3 +137,4 @@ outputs/
 .DS_Store
 
 *.pkl
+*.ply
