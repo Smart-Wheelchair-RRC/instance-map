@@ -138,3 +138,7 @@ outputs/
 
 *.pkl
 *.ply
+/test1-frames
+/test2-frames
+/test2-frames-masked
+/rtab_imgs
