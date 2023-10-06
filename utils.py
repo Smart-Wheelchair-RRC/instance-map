@@ -1,136 +1,240 @@
-import torch
-import pytorch3d.ops as ops
+import os
 import numpy as np
+import random
+import cv2
+
+from scipy.spatial.transform import Rotation as R
+
+import open3d as o3d
+from cuml.cluster import DBSCAN
+import cupy as cp
+
+from collections import Counter
 
 
-def compute_3d_iou(bbox1, bbox2, padding=0, use_iou=True):
-    # Get the coordinates of the first bounding box
-    bbox1_min = np.asarray(bbox1.get_min_bound()) - padding
-    bbox1_max = np.asarray(bbox1.get_max_bound()) + padding
-
-    # Get the coordinates of the second bounding box
-    bbox2_min = np.asarray(bbox2.get_min_bound()) - padding
-    bbox2_max = np.asarray(bbox2.get_max_bound()) + padding
-
-    # Compute the overlap between the two bounding boxes
-    overlap_min = np.maximum(bbox1_min, bbox2_min)
-    overlap_max = np.minimum(bbox1_max, bbox2_max)
-    overlap_size = np.maximum(overlap_max - overlap_min, 0.0)
-
-    overlap_volume = np.prod(overlap_size)
-    bbox1_volume = np.prod(bbox1_max - bbox1_min)
-    bbox2_volume = np.prod(bbox2_max - bbox2_min)
-
-    eps = 1e-5
-
-    obj_1_overlap = overlap_volume / (bbox1_volume + eps)
-    obj_2_overlap = overlap_volume / (bbox2_volume + eps)
-    max_overlap = max(obj_1_overlap, obj_2_overlap)
-
-    iou = overlap_volume / (bbox1_volume + bbox2_volume - overlap_volume)
-
-    if use_iou:
-        return iou
-    else:
-        return max_overlap
+def generate_pastel_color():
+    # generate (r, g, b) tuple of random numbers between 0.5 and 1, truncate to 2 decimal places
+    r = round(random.uniform(0.5, 1), 2)
+    g = round(random.uniform(0.5, 1), 2)
+    b = round(random.uniform(0.5, 1), 2)
+    return (r, g, b)
 
 
-def expand_3d_box(bbox: torch.Tensor, eps=0.02) -> torch.Tensor:
-    '''
-    Expand the side of 3D boxes such that each side has at least eps length.
-    Assumes the bbox cornder order in open3d convention. 
-
-    bbox: (N, 8, D)
-
-    returns: (N, 8, D)
-    '''
-    center = bbox.mean(dim=1)  # shape: (N, D)
-
-    va = bbox[:, 1, :] - bbox[:, 0, :]  # shape: (N, D)
-    vb = bbox[:, 2, :] - bbox[:, 0, :]  # shape: (N, D)
-    vc = bbox[:, 3, :] - bbox[:, 0, :]  # shape: (N, D)
-
-    a = torch.linalg.vector_norm(va, ord=2, dim=1, keepdim=True)  # shape: (N, 1)
-    b = torch.linalg.vector_norm(vb, ord=2, dim=1, keepdim=True)  # shape: (N, 1)
-    c = torch.linalg.vector_norm(vc, ord=2, dim=1, keepdim=True)  # shape: (N, 1)
-
-    va = torch.where(a < eps, va / a * eps, va)  # shape: (N, D)
-    vb = torch.where(b < eps, vb / b * eps, vb)  # shape: (N, D)
-    vc = torch.where(c < eps, vc / c * eps, vc)  # shape: (N, D)
-
-    new_bbox = torch.stack([
-        center - va/2.0 - vb/2.0 - vc/2.0,
-        center + va/2.0 - vb/2.0 - vc/2.0,
-        center - va/2.0 + vb/2.0 - vc/2.0,
-        center - va/2.0 - vb/2.0 + vc/2.0,
-        center + va/2.0 + vb/2.0 + vc/2.0,
-        center - va/2.0 + vb/2.0 + vc/2.0,
-        center + va/2.0 - vb/2.0 + vc/2.0,
-        center + va/2.0 + vb/2.0 - vc/2.0,
-    ], dim=1)  # shape: (N, 8, D)
-
-    new_bbox = new_bbox.to(bbox.device)
-    new_bbox = new_bbox.type(bbox.dtype)
-
-    return new_bbox
+'''
+img_dict = {img_name: {img_path: str,
+                        ram_tags: list_of_str,
+                        objs: {0: {bbox: [x1, y1, x2, y2],
+                                    phrase: str,
+                                    clip_embed: [1, 1024]},
+                                    dino_embed: [1, 1024]},
+                                    mask: [h, w],
+                                    prob: float,
+                                    aabb: arr}
+                                1: {...},
+                        }
+            img_name: {...},
+            }
+'''
 
 
-def compute_3d_iou_accuracte_batch(bbox1, bbox2):
-    '''
-    Compute IoU between two sets of oriented (or axis-aligned) 3D bounding boxes.
+def get_depth(img_name, params):
+    # depth_path = os.path.join(depth_dir, img_name + '.npy')
+    # depth = np.load(depth_path)
 
-    bbox1: (M, 8, D), e.g. (M, 8, 3)
-    bbox2: (N, 8, D), e.g. (N, 8, 3)
-
-    returns: (M, N)
-    '''
-    # Must expend the box beforehand, otherwise it may results overestimated results
-    bbox1 = expand_3d_box(bbox1, 0.02)
-    bbox2 = expand_3d_box(bbox2, 0.02)
-
-    bbox1 = bbox1[:, [0, 2, 5, 3, 1, 7, 4, 6]]
-    bbox2 = bbox2[:, [0, 2, 5, 3, 1, 7, 4, 6]]
-
-    inter_vol, iou = ops.box3d_overlap(bbox1.float(), bbox2.float())
-
-    return iou
+    depth_path = os.path.join(params['depth_dir'], img_name + '.png')
+    depth = cv2.imread(depth_path, cv2.IMREAD_ANYDEPTH)
+    depth = depth.astype(np.float32) / 1000.0
+    return depth
 
 
-def compute_iou_batch(bbox1: torch.Tensor, bbox2: torch.Tensor) -> torch.Tensor:
-    '''
-    Compute IoU between two sets of axis-aligned 3D bounding boxes.
+def get_pose(img_name, params):
+    pose_path = os.path.join(params['pose_dir'], img_name + '.txt')
 
-    bbox1: (M, V, D), e.g. (M, 8, 3)
-    bbox2: (N, V, D), e.g. (N, 8, 3)
+    # check if the pose file exists, if it doesn't, return None
+    # [x, y, z, qx, qy, qz, qw]
+    if not os.path.exists(pose_path):
+        return None
 
-    returns: (M, N)
-    '''
-    # Compute min and max for each box
-    bbox1_min, _ = bbox1.min(dim=1)  # Shape: (M, 3)
-    bbox1_max, _ = bbox1.max(dim=1)  # Shape: (M, 3)
-    bbox2_min, _ = bbox2.min(dim=1)  # Shape: (N, 3)
-    bbox2_max, _ = bbox2.max(dim=1)  # Shape: (N, 3)
+    with open(pose_path, 'r') as f:
+        pose = f.read().split()
+        pose = np.array(pose).astype(np.float32)
+    return pose
 
-    # Expand dimensions for broadcasting
-    bbox1_min = bbox1_min.unsqueeze(1)  # Shape: (M, 1, 3)
-    bbox1_max = bbox1_max.unsqueeze(1)  # Shape: (M, 1, 3)
-    bbox2_min = bbox2_min.unsqueeze(0)  # Shape: (1, N, 3)
-    bbox2_max = bbox2_max.unsqueeze(0)  # Shape: (1, N, 3)
 
-    # Compute max of min values and min of max values
-    # to obtain the coordinates of intersection box.
-    inter_min = torch.max(bbox1_min, bbox2_min)  # Shape: (M, N, 3)
-    inter_max = torch.min(bbox1_max, bbox2_max)  # Shape: (M, N, 3)
+def get_sim_cam_mat_with_fov(h, w, fov):
+    cam_mat = np.eye(3)
+    cam_mat[0, 0] = cam_mat[1, 1] = w / (2.0 * np.tan(np.deg2rad(fov / 2)))
+    cam_mat[0, 2] = w / 2.0
+    cam_mat[1, 2] = h / 2.0
+    return cam_mat
 
-    # Compute volume of intersection box
-    inter_vol = torch.prod(torch.clamp(inter_max - inter_min, min=0), dim=2)  # Shape: (M, N)
 
-    # Compute volumes of the two sets of boxes
-    bbox1_vol = torch.prod(bbox1_max - bbox1_min, dim=2)  # Shape: (M, 1)
-    bbox2_vol = torch.prod(bbox2_max - bbox2_min, dim=2)  # Shape: (1, N)
+def get_realsense_cam_mat():
+    K = np.array([[386.458, 0, 321.111],
+                  [0, 386.458, 241.595],
+                  [0, 0, 1]])
+    return K
 
-    # Compute IoU, handling the special case where there is no intersection
-    # by setting the intersection volume to 0.
-    iou = inter_vol / (bbox1_vol + bbox2_vol - inter_vol + 1e-10)
 
-    return iou
+def get_kinect_cam_mat():
+    K = np.array([[9.7096624755859375e+02, 0., 1.0272059326171875e+03],
+                  [0., 9.7109600830078125e+02, 7.7529718017578125e+02],
+                  [0., 0., 1]])
+    return K
+
+
+def create_point_cloud(img_id, obj_data, cam_mat, params, color=(1, 0, 0), cam_height=0.9):
+    """
+    Generates a point cloud from a depth image, camera intrinsics, mask, and pose.
+    Only points within the mask and with valid depth are added to the cloud.
+    Points are colored using the specified color.
+    """
+
+    depth = get_depth(img_id, params)
+    pose = get_pose(img_id, params)
+    mask = obj_data['mask']
+
+    if pose is None:
+        return o3d.geometry.PointCloud()
+
+    # Reproject the depth to 3D space
+    rows, cols = np.where(mask)
+
+    depth_values = depth[rows, cols]
+    valid_depth_indices = (depth_values > 0) & (depth_values <= 5)
+
+    rows = rows[valid_depth_indices]
+    cols = cols[valid_depth_indices]
+    depth_values = depth_values[valid_depth_indices]
+
+    points2d = np.vstack([cols, rows, np.ones_like(rows)])
+
+    cam_mat_inv = np.linalg.inv(cam_mat)
+    points3d_cam = cam_mat_inv @ points2d * depth_values
+
+    # Parse the pose
+    pos = np.array(pose[:3], dtype=float).reshape((3, 1))
+    quat = pose[3:]
+    rot = R.from_quat(quat).as_matrix()
+
+    # # Apply rotation correction, to match the orientation z: backward, y: upward, and x: right
+    # rot_ro_cam = np.eye(3)
+    # rot_ro_cam[1, 1] = -1
+    # rot_ro_cam[2, 2] = -1
+    # rot = rot @ rot_ro_cam
+
+    # # Apply position correction
+    # pos[1] += cam_height
+
+    # Create the pose matrix
+    pose_matrix = np.eye(4)
+    pose_matrix[:3, :3] = rot
+    pose_matrix[:3, 3] = pos.reshape(-1)
+
+    # Transform the points to global frame
+    points3d_homo = np.vstack([points3d_cam, np.ones((1, points3d_cam.shape[1]))])
+    points3d_global_homo = pose_matrix @ points3d_homo
+    points3d_global = points3d_global_homo[:3, :]
+
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points3d_global.T)
+
+    # Assign color to the point cloud
+    pcd.colors = o3d.utility.Vector3dVector(np.tile(color, (points3d_global.shape[1], 1)))
+
+    return pcd
+
+
+def fast_DBSCAN(point_cloud_o3d, eps=0.2, min_samples=20):
+
+    if point_cloud_o3d.is_empty():
+        return point_cloud_o3d
+
+    # Convert Open3D point cloud to NumPy arrays
+    points_np = np.asarray(point_cloud_o3d.points)
+    colors_np = np.asarray(point_cloud_o3d.colors)
+
+    # Convert NumPy array to CuPy array for GPU computations
+    points_gpu = cp.asarray(points_np)
+
+    # Create a DBSCAN instance with cuML
+    dbscan_model = DBSCAN(eps=eps, min_samples=min_samples)
+
+    # Fit the model to the GPU data
+    dbscan_model.fit(points_gpu)
+
+    # Get the labels for the clusters
+    labels_gpu = dbscan_model.labels_
+
+    # Convert the labels back to a NumPy array
+    labels = cp.asnumpy(labels_gpu)
+
+    # Count the occurrence of each label to find the largest cluster
+    label_counter = Counter(labels)
+    label_counter.pop(-1, None)  # Remove the noise label (-1)
+    if not label_counter:  # If all points are noise, return an empty point cloud
+        return o3d.geometry.PointCloud()
+
+    # Find the label of the largest cluster
+    largest_cluster_label = max(label_counter, key=label_counter.get)
+
+    # Filter the points and colors that belong to the largest cluster
+    largest_cluster_points = points_np[labels == largest_cluster_label]
+    largest_cluster_colors = colors_np[labels == largest_cluster_label]
+
+    # Create a new Open3D point cloud with the points and colors of the largest cluster
+    largest_cluster_point_cloud_o3d = o3d.geometry.PointCloud()
+    largest_cluster_point_cloud_o3d.points = o3d.utility.Vector3dVector(largest_cluster_points)
+    largest_cluster_point_cloud_o3d.colors = o3d.utility.Vector3dVector(largest_cluster_colors)
+
+    return largest_cluster_point_cloud_o3d
+
+
+def vanilla_icp(source, target, params):
+    # Set ICP configuration
+    config = o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=1e-6,
+                                                               relative_rmse=1e-6, max_iteration=params['icp_max_iter'])
+
+    icp_threshold = params['voxel_size'] * params['icp_threshold_multiplier']
+
+    # Run ICP
+    result_icp = o3d.pipelines.registration.registration_icp(
+        source, target, icp_threshold, np.eye(4),
+        o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+        config)
+
+    # Update pcd based on the transformation matrix obtained from ICP
+    source.transform(result_icp.transformation)
+    return source
+
+
+def process_pcd(pcd, params, run_dbscan=True):
+    pcd = pcd.voxel_down_sample(voxel_size=params['voxel_size'])
+
+    if run_dbscan:
+        pcd = fast_DBSCAN(pcd, eps=params['eps'], min_samples=params['min_samples'])
+
+    return pcd
+
+
+def get_bounding_box(pcd, params):
+    try:
+        return pcd.get_oriented_bounding_box(robust=True)
+    except RuntimeError as e:
+        # print(f"Met {e}, use axis aligned bounding box instead")
+        return pcd.get_axis_aligned_bounding_box()
+
+
+def check_background(obj_data):
+    background_words = ['ceiling', 'wall', 'floor', 'pillar', 'door', 'basement', 'room', 'workshop', 'warehouse']
+    background_phrase = ['office']
+
+    obj_phrase = obj_data['phrase']
+    if obj_phrase in background_phrase:
+        return True
+
+    obj_words = obj_phrase.split()
+    for word in obj_words:
+        if word in background_words:
+            return True
+    return False
