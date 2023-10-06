@@ -22,7 +22,7 @@ def visualize_and_capture(img_id, scene_obj_nodes, params):
 
     # Create visualizer
     vis = o3d.visualization.Visualizer()
-    vis.create_window(visible=False)
+    vis.create_window()
 
     # Clear existing geometries
     vis.clear_geometries()

@@ -13,7 +13,7 @@ from scene_graph import *
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-params = {'init_img_id': '1',  # initialize the scene with this image
+params = {'init_img_id': '835',  # initialize the scene with this image
 
           'cam_mat': get_kinect_cam_mat(),  # camera matrix
           'device': device,  # device to run the code on
@@ -48,6 +48,9 @@ params = {'init_img_id': '1',  # initialize the scene with this image
 
 with open(params['img_dict_dir'], 'rb') as f:
     img_dict = pickle.load(f)
+
+# for id in img_dict.keys():
+#     print(id, len(img_dict[id]['objs']))
 
 # Initialize the scene with the first image
 print("Initializing the scene...")
