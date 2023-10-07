@@ -1,8 +1,8 @@
 import os
 from tqdm import tqdm
 
-poses_file_path = "/scratch/kumaradi.gupta/run_ipad/poses.txt"
-output_path = "/scratch/kumaradi.gupta/run_ipad/pose/"
+poses_file_path = "/scratch/kumaradi.gupta/run_iphone/poses.txt"
+output_path = "/scratch/kumaradi.gupta/run_iphone/pose/"
 
 poses_file = open(poses_file_path, "r")
 poses_file.readline()
