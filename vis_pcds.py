@@ -121,6 +121,11 @@ scene_obj_nodes_path = "/path/to/scene_obj_nodes.pkl"
 with open(scene_obj_nodes_path, "rb") as f:
     scene_obj_nodes = pickle.load(f)
 
+node_ids_to_remove = [2294, 3045, 1610, 208, 538, 1157]
+for node_id in node_ids_to_remove:
+    if node_id in scene_obj_nodes:
+        del scene_obj_nodes[node_id]
+
 # Initialize the visualizer
 vis = o3d.visualization.Visualizer()
 vis.create_window()
