@@ -8,7 +8,7 @@ import open3d as o3d
 import torch
 
 from utils import *
-from vis import visualize_and_capture
+from vis_live import visualize_and_capture
 from scene_graph import *
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
