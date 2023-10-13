@@ -121,22 +121,32 @@ def key_callback(vis, action, mods):
 
 
 # Initialize the CLIP model
+clip_model_name = "ViT-B-32"
 print("Initializing CLIP model...")
 device = "cpu"
-clip_model, _, clip_preprocess = open_clip.create_model_and_transforms("ViT-H-14", "laion2b_s32b_b79k")
-clip_model = clip_model.to(device)
-clip_tokenizer = open_clip.get_tokenizer("ViT-H-14")
+if clip_model_name == "ViT-H-14":
+    clip_model, _, clip_preprocess = open_clip.create_model_and_transforms("ViT-H-14", "laion2b_s32b_b79k")
+    clip_model = clip_model.to(device)
+    clip_tokenizer = open_clip.get_tokenizer("ViT-H-14")
+elif clip_model_name == "ViT-B-32":
+    clip_model, _, clip_preprocess = open_clip.create_model_and_transforms("ViT-B-32", "laion2b_s34b_b79k")
+    clip_model = clip_model.to(device)
+    clip_tokenizer = open_clip.get_tokenizer("ViT-B-32")
+else:
+    raise NotImplementedError(f"CLIP model {clip_model_name} not implemented.")
 print("Done initializing CLIP model.")
 
 # Load the scene object nodes
-scene_obj_nodes_path = "/home/interns/Desktop/scene_obj_nodes.pkl"
+all_datasets_path = "/home/interns/Desktop/Datasets"
+dataset_path = f"{all_datasets_path}/run_iphone/output_v1.2"
+scene_obj_nodes_path = f"{dataset_path}/scene_obj_nodes.pkl"
 with open(scene_obj_nodes_path, "rb") as f:
     scene_obj_nodes = pickle.load(f)
 
-node_ids_to_remove = [2294, 3045, 1610, 208, 538, 1157]
-for node_id in node_ids_to_remove:
-    if node_id in scene_obj_nodes:
-        del scene_obj_nodes[node_id]
+# node_ids_to_remove = [2294, 3045, 1610, 208, 538, 1157]
+# for node_id in node_ids_to_remove:
+#     if node_id in scene_obj_nodes:
+#         del scene_obj_nodes[node_id]
 
 # Initialize the visualizer
 vis = o3d.visualization.VisualizerWithKeyCallback()
@@ -146,7 +156,7 @@ vis.create_window(window_name="Point Cloud Visualizer", width=1280, height=720)
 point_clouds = []
 for node_id, node_data in scene_obj_nodes.items():
     pcd_path = node_data['pcd']
-    pcd_path = pcd_path.replace('/scratch/kumaradi.gupta/Datasets/run_kinect_wheel_2/pcds', '/home/interns/Desktop/pcds')
+    pcd_path = pcd_path.replace('/scratch/kumaradi.gupta/Datasets', all_datasets_path)
     pcd = o3d.io.read_point_cloud(pcd_path)
     pcd = pcd.voxel_down_sample(voxel_size=0.05)
     original_colors = np.asarray(pcd.colors)
