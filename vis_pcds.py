@@ -6,12 +6,12 @@ import torch.nn.functional as F
 import open_clip
 import matplotlib
 
-CLIP_SIM_THRESHOLD = 0.3
+CLIP_SIM_THRESHOLD = 0.80
 
 
 def reset_colors(vis):
-    for node_id, pcd, original_colors in point_clouds:
-        pcd.colors = o3d.utility.Vector3dVector(original_colors)
+    for _, pcd, original_color in point_clouds:
+        pcd.paint_uniform_color(original_color)
         vis.update_geometry(pcd)
 
 
@@ -64,35 +64,26 @@ def clip_similarity_find_obj(vis):
     text_features = text_features.squeeze()
 
     matching_count = 0  # Counter for matching objects
-    sim_scores = []
+    objects_clip_fts = torch.stack([torch.tensor(scene_obj_nodes[node_id]['clip_embed'])
+                                   for node_id, _, _ in point_clouds]).to(device)
+    similarities = F.cosine_similarity(text_features.unsqueeze(0), objects_clip_fts, dim=-1)
+    normalized_similarities = (similarities - similarities.min()) / (similarities.max() - similarities.min())
 
-    for node_id, pcd, _ in point_clouds:
-        clip_embed = scene_obj_nodes[node_id]['clip_embed']
-        similarity = torch.nn.functional.cosine_similarity(
-            torch.tensor(clip_embed, device=device),
-            text_features,
-            dim=-1
-        ).item()
+    # sort the normalized similarities and print them
+    sorted_similarities, sorted_indices = torch.sort(normalized_similarities, descending=True)
+    print("Sorted similarities: ", sorted_similarities)
 
-        sim_scores.append(similarity)
-
-        if similarity < CLIP_SIM_THRESHOLD:
-            colors = np.array([0.5, 0.5, 0.5])
+    # color the objects with similarity greater than CLIP_SIM_THRESHOLD
+    for i, (node_id, pcd, _) in enumerate(point_clouds):
+        if normalized_similarities[i] > CLIP_SIM_THRESHOLD:
+            matching_count += 1
+            pcd.paint_uniform_color(np.random.rand(3))
         else:
-            colors = np.random.rand(3)
-            matching_count += 1  # Increment the counter if it's a match
+            pcd.paint_uniform_color([0.5, 0.5, 0.5])
 
-        expanded_colors = np.tile(colors, (len(pcd.points), 1))
-        pcd.colors = o3d.utility.Vector3dVector(expanded_colors)
         vis.update_geometry(pcd)
-    
-    # sort the scores in descending order
-    sim_scores = np.array(sim_scores)
-    sorted_indices = np.argsort(sim_scores)[::-1]
-    sim_scores = sim_scores[sorted_indices]
-    print(sim_scores)
 
-    print(f"{matching_count} objects match the text '{text}'")
+    print(f"Matching count: {matching_count}")
 
 # Key callbacks
 
@@ -121,7 +112,7 @@ def key_callback(vis, action, mods):
 
 
 # Initialize the CLIP model
-clip_model_name = "ViT-B-32"
+clip_model_name = "ViT-H-14"
 print("Initializing CLIP model...")
 device = "cpu"
 if clip_model_name == "ViT-H-14":
@@ -138,7 +129,7 @@ print("Done initializing CLIP model.")
 
 # Load the scene object nodes
 all_datasets_path = "/home/interns/Desktop/Datasets"
-dataset_path = f"{all_datasets_path}/run_iphone/output_v1.2"
+dataset_path = f"{all_datasets_path}/run_ipad/output_v1.2"
 scene_obj_nodes_path = f"{dataset_path}/scene_obj_nodes.pkl"
 with open(scene_obj_nodes_path, "rb") as f:
     scene_obj_nodes = pickle.load(f)
@@ -159,8 +150,8 @@ for node_id, node_data in scene_obj_nodes.items():
     pcd_path = pcd_path.replace('/scratch/kumaradi.gupta/Datasets', all_datasets_path)
     pcd = o3d.io.read_point_cloud(pcd_path)
     pcd = pcd.voxel_down_sample(voxel_size=0.05)
-    original_colors = np.asarray(pcd.colors)
-    point_clouds.append((node_id, pcd, original_colors))
+    original_color = np.asarray(pcd.colors)[0].tolist()
+    point_clouds.append((node_id, pcd, original_color))
     vis.add_geometry(pcd)
 
 # Register key callback
