@@ -41,7 +41,7 @@ def color_by_clip_sim(vis):
     cmap = matplotlib.colormaps.get_cmap("turbo")
     similarity_colors = cmap(normalized_similarities.detach().cpu().numpy())[..., :3]
 
-    for i, (_, pcd, _) in enumerate(point_clouds):
+    for i, (_, pcd, _, _, _) in enumerate(point_clouds):
         pcd.colors = o3d.utility.Vector3dVector(
             np.tile(similarity_colors[i], (len(pcd.points), 1))
         )
@@ -148,7 +148,7 @@ print("Done initializing CLIP model.")
 
 # Load the scene object nodes
 all_datasets_path = "/Users/kumaraditya/Desktop/Datasets"
-dataset_path = f"{all_datasets_path}/run_ipad/output_v1.2"
+dataset_path = f"{all_datasets_path}/run_kinect_wheel_2/output_v1.2"
 scene_obj_nodes_path = f"{dataset_path}/scene_obj_nodes.pkl"
 with open(scene_obj_nodes_path, "rb") as f:
     scene_obj_nodes = pickle.load(f)
