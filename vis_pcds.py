@@ -5,15 +5,24 @@ import torch
 import torch.nn.functional as F
 import open_clip
 import matplotlib
+from collections import Counter
+import random
 
 CLIP_SIM_THRESHOLD = 0.80
 
+def generate_pastel_color():
+    # generate (r, g, b) tuple of random numbers between 0.5 and 1, truncate to 2 decimal places
+    r = round(random.uniform(0.4, 1), 2)
+    g = round(random.uniform(0.4, 1), 2)
+    b = round(random.uniform(0.4, 1), 2)
+    color = np.array([r, g, b])
+    return color
 
 def reset_colors(vis):
-    for _, pcd, original_color in point_clouds:
+    for _, pcd, original_color, _, _ in point_clouds:
         pcd.paint_uniform_color(original_color)
         vis.update_geometry(pcd)
-
+    return
 
 def color_by_clip_sim(vis):
     text_query = input("Enter your query: ")
@@ -25,7 +34,7 @@ def color_by_clip_sim(vis):
     text_query_ft = text_query_ft.squeeze()
 
     objects_clip_fts = torch.stack([torch.tensor(scene_obj_nodes[node_id]['clip_embed'])
-                                   for node_id, _, _ in point_clouds]).to(device)
+                                   for node_id, _, _, _, _ in point_clouds]).to(device)
     similarities = F.cosine_similarity(text_query_ft.unsqueeze(0), objects_clip_fts, dim=-1)
     normalized_similarities = (similarities - similarities.min()) / (similarities.max() - similarities.min())
 
@@ -37,22 +46,28 @@ def color_by_clip_sim(vis):
             np.tile(similarity_colors[i], (len(pcd.points), 1))
         )
         vis.update_geometry(pcd)
+    return
 
 
 def instance_coloring_callback(vis):
     target_node_id = input("Enter the node_id to color: ")
 
-    for node_id, pcd, _ in point_clouds:
+    try:
+        target_node_id = int(target_node_id)
+    except ValueError:
+        print("Invalid node_id. Please enter an integer.")
+        return
+
+    for node_id, pcd, _, _, _ in point_clouds:
         if node_id == target_node_id:
-            unique_color = np.random.rand(3)
-            unique_color = np.tile(unique_color, (len(pcd.points), 1))
-            pcd.colors = o3d.utility.Vector3dVector(unique_color)
+            unique_color = generate_pastel_color()
+            pcd.paint_uniform_color(unique_color)
         else:
             colors = np.array([0.5, 0.5, 0.5])
-            colors = np.tile(colors, (len(pcd.points), 1))
-            pcd.colors = o3d.utility.Vector3dVector(colors)
+            pcd.paint_uniform_color(colors)
 
         vis.update_geometry(pcd)
+    return
 
 
 def clip_similarity_find_obj(vis):
@@ -63,52 +78,56 @@ def clip_similarity_find_obj(vis):
     text_features = text_features / text_features.norm(dim=-1, keepdim=True)
     text_features = text_features.squeeze()
 
+    ground_truths_node_ids = []
+    ground_truth_tag_ids = []
+    highlighted_ids = []
+
     matching_count = 0  # Counter for matching objects
     objects_clip_fts = torch.stack([torch.tensor(scene_obj_nodes[node_id]['clip_embed'])
-                                   for node_id, _, _ in point_clouds]).to(device)
+                                   for node_id, _, _, _, _ in point_clouds]).to(device)
     similarities = F.cosine_similarity(text_features.unsqueeze(0), objects_clip_fts, dim=-1)
     normalized_similarities = (similarities - similarities.min()) / (similarities.max() - similarities.min())
 
     # sort the normalized similarities and print them
     sorted_similarities, sorted_indices = torch.sort(normalized_similarities, descending=True)
-    print("Sorted similarities: ", sorted_similarities)
+    # print("Sorted similarities: ", sorted_similarities)
 
     # color the objects with similarity greater than CLIP_SIM_THRESHOLD
-    for i, (node_id, pcd, _) in enumerate(point_clouds):
+    for i, (node_id, pcd, color, gt_tag, gt_tag_id) in enumerate(point_clouds):
         if normalized_similarities[i] > CLIP_SIM_THRESHOLD:
             matching_count += 1
-            pcd.paint_uniform_color(np.random.rand(3))
+            highlighted_ids.append(node_id)
+            pcd.paint_uniform_color(generate_pastel_color())
         else:
             pcd.paint_uniform_color([0.5, 0.5, 0.5])
 
         vis.update_geometry(pcd)
 
-    print(f"Matching count: {matching_count}")
+        for tag in gt_tag:
+            if tag == text:
+                ground_truths_node_ids.append(node_id)
+                ground_truth_tag_ids.append(gt_tag_id)
+                break
 
-# Key callbacks
+    gt_tag_id_counter = Counter(ground_truth_tag_ids)
+    ground_truths_count = len(gt_tag_id_counter)
 
+    # Get FP and FN from highlighted_ids and ground_truths
+    FP = [node_id for node_id in highlighted_ids if node_id not in ground_truths_node_ids]
+    FN = [node_id for node_id in ground_truths_node_ids if node_id not in highlighted_ids]
 
-def key_callback(vis, action, mods):
-    if action != o3d.visualization.KeyActionType.KEY_DOWN:
-        return False
-
-    if vis.is_key_pressed("f"):
-        clip_similarity_find_obj(vis)
-        return True
-
-    if vis.is_key_pressed("i"):
-        instance_coloring_callback(vis)
-        return True
-
-    if vis.is_key_pressed("g"):
-        color_by_clip_sim(vis)
-        return True
-
-    if vis.is_key_pressed("r"):
-        reset_colors(vis)
-        return True
-
-    return False
+    print("------------------------------------")
+    print(f"Ground truth count: {ground_truths_count}")
+    print("------------------------------------")
+    print(f'GT Node IDs: {ground_truths_node_ids}')
+    print(f'Highlighted IDs: {highlighted_ids}')
+    print("------------------------------------")
+    print(f"Ground truth count (including ghosts): {len(ground_truths_node_ids)}")
+    print(f"Detected object count: {matching_count}")
+    print(f"False Positives: {len(FP)}")
+    print(f"False Negatives: {len(FN)}")
+    print("------------------------------------")
+    return
 
 
 # Initialize the CLIP model
@@ -128,7 +147,7 @@ else:
 print("Done initializing CLIP model.")
 
 # Load the scene object nodes
-all_datasets_path = "/home/interns/Desktop/Datasets"
+all_datasets_path = "/Users/kumaraditya/Desktop/Datasets"
 dataset_path = f"{all_datasets_path}/run_ipad/output_v1.2"
 scene_obj_nodes_path = f"{dataset_path}/scene_obj_nodes.pkl"
 with open(scene_obj_nodes_path, "rb") as f:
@@ -143,6 +162,11 @@ with open(scene_obj_nodes_path, "rb") as f:
 vis = o3d.visualization.VisualizerWithKeyCallback()
 vis.create_window(window_name="Point Cloud Visualizer", width=1280, height=720)
 
+# Change the background color
+view_control = vis.get_view_control()
+opt = vis.get_render_option()
+opt.background_color = np.asarray([0.1, 0.1, 0.1])  # Setting to dark gray
+
 # Load point clouds and store original colors
 point_clouds = []
 for node_id, node_data in scene_obj_nodes.items():
@@ -151,7 +175,9 @@ for node_id, node_data in scene_obj_nodes.items():
     pcd = o3d.io.read_point_cloud(pcd_path)
     pcd = pcd.voxel_down_sample(voxel_size=0.05)
     original_color = np.asarray(pcd.colors)[0].tolist()
-    point_clouds.append((node_id, pcd, original_color))
+
+    gt_tag, gt_tag_id = node_data['gt_tag'], node_data['gt_tag_id']
+    point_clouds.append((node_id, pcd, original_color, gt_tag, gt_tag_id))
     vis.add_geometry(pcd)
 
 # Register key callback
