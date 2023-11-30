@@ -9,6 +9,12 @@ from collections import Counter
 import random
 
 CLIP_SIM_THRESHOLD = 0.80
+moving_point = None
+target_position = np.array([-1.75459462, -6.80577113, 0.95867251])
+is_moving = False
+
+target_obj_id = None #437 is wheelchair
+forward_vector = np.array([0, -1, 0])  # Assuming initial forward direction is along Y-axis
 
 def generate_pastel_color():
     # generate (r, g, b) tuple of random numbers between 0.5 and 1, truncate to 2 decimal places
@@ -48,7 +54,6 @@ def color_by_clip_sim(vis):
         vis.update_geometry(pcd)
     return
 
-
 def instance_coloring_callback(vis):
     target_node_id = input("Enter the node_id to color: ")
 
@@ -69,9 +74,8 @@ def instance_coloring_callback(vis):
         vis.update_geometry(pcd)
     return
 
-
 def clip_similarity_find_obj(vis):
-    text = input("Enter the text to find similarity: ")
+    text = input("Enter the query to find relevant objects: ")
     text_queries = [text]
     text_queries_tokenized = clip_tokenizer(text_queries).to(device)
     text_features = clip_model.encode_text(text_queries_tokenized)
@@ -98,6 +102,8 @@ def clip_similarity_find_obj(vis):
             matching_count += 1
             highlighted_ids.append(node_id)
             pcd.paint_uniform_color(generate_pastel_color())
+        elif node_id == target_obj_id:
+            pcd.paint_uniform_color([0.8, 0, 0])
         else:
             pcd.paint_uniform_color([0.5, 0.5, 0.5])
 
@@ -127,7 +133,80 @@ def clip_similarity_find_obj(vis):
     print(f"False Positives: {len(FP)}")
     print(f"False Negatives: {len(FN)}")
     print("------------------------------------")
+
+    # Navigate to the first highlighted object
+    # After highlighting objects in the clip_similarity_find_obj function
+
+    # if highlighted_ids:
+    #     # Get the position of the first highlighted object
+    #     req_node_id = highlighted_ids[0]
+    #     index = [i for i, (node_id_, _, _, _, _) in enumerate(point_clouds) if node_id_ == req_node_id][0]
+    #     first_highlighted_obj = point_clouds[index][1]
+    #     target_position = np.mean(np.asarray(first_highlighted_obj.points), axis=0)
+    #     print(f"Target Position: {target_position}")
     return
+
+def create_point_at_position(position, color):
+    point = np.array([position])
+    point_cloud = o3d.geometry.PointCloud()
+    point_cloud.points = o3d.utility.Vector3dVector(point)
+    point_cloud.paint_uniform_color(color)
+    return point_cloud
+
+def move_point_callback(vis):
+    global moving_point, is_moving
+
+    # Create target and moving points
+    target_point = create_point_at_position(target_position, [0, 1, 0])
+    moving_point = create_point_at_position(np.random.uniform(-1, 1, 3), [1, 0, 0])
+
+    vis.add_geometry(target_point)
+    vis.add_geometry(moving_point)
+
+    # Start moving
+    is_moving = True
+
+def timer_callback(vis):
+    global moving_point, is_moving
+
+    if is_moving:
+        # Move the point towards the target
+        current_position = np.asarray(moving_point.points)[0]
+        direction = target_position - current_position
+        step_size = 0.02
+        distance = np.linalg.norm(direction)
+
+        if distance > step_size:
+            direction_normalized = direction / distance
+            new_position = current_position + direction_normalized * step_size
+            moving_point.points = o3d.utility.Vector3dVector([new_position])
+            vis.update_geometry(moving_point)
+        else:
+            print("Target reached.")
+            is_moving = False
+
+def move_object(vis, direction, step_size=0.1):
+    global point_clouds, target_obj_id, forward_vector
+
+    for node_id, pcd, _, _, _ in point_clouds:
+        if node_id == target_obj_id:
+            # Move the object along the forward vector
+            translation_vector = forward_vector * step_size if direction == "forward" else -forward_vector * step_size
+            pcd.translate(translation_vector)
+            vis.update_geometry(pcd)
+            break
+
+def rotate_object(vis, direction, angle=np.pi/12):
+    global point_clouds, target_obj_id, forward_vector
+
+    for node_id, pcd, _, _, _ in point_clouds:
+        if node_id == target_obj_id:
+            # Rotate the object and update the forward vector
+            rotation_matrix = o3d.geometry.get_rotation_matrix_from_axis_angle((0, 0, angle)) if direction == "right" else o3d.geometry.get_rotation_matrix_from_axis_angle((0, 0, -angle))
+            pcd.rotate(rotation_matrix, center=pcd.get_center())
+            forward_vector = rotation_matrix.dot(forward_vector)
+            vis.update_geometry(pcd)
+            break
 
 
 # Initialize the CLIP model
@@ -163,7 +242,6 @@ vis = o3d.visualization.VisualizerWithKeyCallback()
 vis.create_window(window_name="Point Cloud Visualizer", width=1280, height=720)
 
 # Change the background color
-view_control = vis.get_view_control()
 opt = vis.get_render_option()
 opt.background_color = np.asarray([0.1, 0.1, 0.1])  # Setting to dark gray
 
@@ -185,6 +263,15 @@ vis.register_key_callback(ord("F"), clip_similarity_find_obj)
 vis.register_key_callback(ord("I"), instance_coloring_callback)
 vis.register_key_callback(ord("G"), color_by_clip_sim)
 vis.register_key_callback(ord("R"), reset_colors)
+
+vis.register_key_callback(ord("M"), move_point_callback)
+vis.register_animation_callback(timer_callback)
+
+# Register key callbacks for movement and rotation
+vis.register_key_callback(265, lambda vis: move_object(vis, "forward"))    # Up arrow key for moving forward
+vis.register_key_callback(264, lambda vis: move_object(vis, "backward"))  # Down arrow key for moving backward
+vis.register_key_callback(263, lambda vis: rotate_object(vis, "right")) # Right arrow key for rotating right
+vis.register_key_callback(262, lambda vis: rotate_object(vis, "left"))  # Left arrow key for rotating left
 
 # Run the visualizer
 vis.run()
