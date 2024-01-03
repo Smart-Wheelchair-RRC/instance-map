@@ -9,6 +9,8 @@ from collections import Counter
 import random
 
 CLIP_SIM_THRESHOLD = 0.80
+check_gt = False
+
 moving_point = None
 target_position = np.array([-1.75459462, -6.80577113, 0.95867251])
 is_moving = False
@@ -74,7 +76,7 @@ def instance_coloring_callback(vis):
         vis.update_geometry(pcd)
     return
 
-def clip_similarity_find_obj(vis):
+def clip_similarity_find_obj(vis, check_gt=False):
     text = input("Enter the query to find relevant objects: ")
     text_queries = [text]
     text_queries_tokenized = clip_tokenizer(text_queries).to(device)
@@ -115,24 +117,25 @@ def clip_similarity_find_obj(vis):
                 ground_truth_tag_ids.append(gt_tag_id)
                 break
 
-    gt_tag_id_counter = Counter(ground_truth_tag_ids)
-    ground_truths_count = len(gt_tag_id_counter)
+    if check_gt:
+        gt_tag_id_counter = Counter(ground_truth_tag_ids)
+        ground_truths_count = len(gt_tag_id_counter)
 
-    # Get FP and FN from highlighted_ids and ground_truths
-    FP = [node_id for node_id in highlighted_ids if node_id not in ground_truths_node_ids]
-    FN = [node_id for node_id in ground_truths_node_ids if node_id not in highlighted_ids]
+        # Get FP and FN from highlighted_ids and ground_truths
+        FP = [node_id for node_id in highlighted_ids if node_id not in ground_truths_node_ids]
+        FN = [node_id for node_id in ground_truths_node_ids if node_id not in highlighted_ids]
 
-    print("------------------------------------")
-    print(f"Ground truth count: {ground_truths_count}")
-    print("------------------------------------")
-    print(f'GT Node IDs: {ground_truths_node_ids}')
-    print(f'Highlighted IDs: {highlighted_ids}')
-    print("------------------------------------")
-    print(f"Ground truth count (including ghosts): {len(ground_truths_node_ids)}")
-    print(f"Detected object count: {matching_count}")
-    print(f"False Positives: {len(FP)}")
-    print(f"False Negatives: {len(FN)}")
-    print("------------------------------------")
+        print("------------------------------------")
+        print(f"Ground truth count: {ground_truths_count}")
+        print("------------------------------------")
+        print(f'GT Node IDs: {ground_truths_node_ids}')
+        print(f'Highlighted IDs: {highlighted_ids}')
+        print("------------------------------------")
+        print(f"Ground truth count (including ghosts): {len(ground_truths_node_ids)}")
+        print(f"Detected object count: {matching_count}")
+        print(f"False Positives: {len(FP)}")
+        print(f"False Negatives: {len(FN)}")
+        print("------------------------------------")
 
     # Navigate to the first highlighted object
     # After highlighting objects in the clip_similarity_find_obj function
@@ -227,7 +230,7 @@ print("Done initializing CLIP model.")
 
 # Load the scene object nodes
 all_datasets_path = "/Users/kumaraditya/Desktop/Datasets"
-dataset_path = f"{all_datasets_path}/run_kinect_wheel_2/output_v1.2"
+dataset_path = f"{all_datasets_path}/run_kinect_wheel_3/output_v3"
 scene_obj_nodes_path = f"{dataset_path}/scene_obj_nodes.pkl"
 with open(scene_obj_nodes_path, "rb") as f:
     scene_obj_nodes = pickle.load(f)
@@ -249,12 +252,15 @@ opt.background_color = np.asarray([0.1, 0.1, 0.1])  # Setting to dark gray
 point_clouds = []
 for node_id, node_data in scene_obj_nodes.items():
     pcd_path = node_data['pcd']
-    pcd_path = pcd_path.replace('/scratch/kumaradi.gupta/Datasets', all_datasets_path)
+    pcd_path = pcd_path.replace('/scratch/kumaraditya_gupta/Datasets', all_datasets_path)
     pcd = o3d.io.read_point_cloud(pcd_path)
     pcd = pcd.voxel_down_sample(voxel_size=0.05)
     original_color = np.asarray(pcd.colors)[0].tolist()
 
-    gt_tag, gt_tag_id = node_data['gt_tag'], node_data['gt_tag_id']
+    try:
+        gt_tag, gt_tag_id = node_data['gt_tag'], node_data['gt_tag_id']
+    except KeyError:
+        gt_tag, gt_tag_id = [], []
     point_clouds.append((node_id, pcd, original_color, gt_tag, gt_tag_id))
     vis.add_geometry(pcd)
 
