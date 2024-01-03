@@ -20,7 +20,7 @@ def generate_pastel_color():
     return (r, g, b)
 
 
-'''
+"""
 img_dict = {img_name: {img_path: str,
                         ram_tags: list_of_str,
                         objs: {0: {bbox: [x1, y1, x2, y2],
@@ -34,30 +34,33 @@ img_dict = {img_name: {img_path: str,
                         }
             img_name: {...},
             }
-'''
+"""
 
 
 def get_depth(img_name, params):
     # depth_path = os.path.join(depth_dir, img_name + '.npy')
     # depth = np.load(depth_path)
 
-    depth_path = os.path.join(params['depth_dir'], img_name + '.png')
+    depth_path = os.path.join(params["depth_dir"], img_name + ".png")
     depth = cv2.imread(depth_path, cv2.IMREAD_ANYDEPTH)
     depth = depth.astype(np.float32) / 1000.0
     return depth
 
 
 def get_pose(img_name, params):
-    pose_path = os.path.join(params['pose_dir'], img_name + '.txt')
+    pose_path = os.path.join(params["pose_dir"], img_name + ".txt")
 
     # check if the pose file exists, if it doesn't, return None
     # [x, y, z, qx, qy, qz, qw]
     if not os.path.exists(pose_path):
         return None
 
-    with open(pose_path, 'r') as f:
+    with open(pose_path, "r") as f:
         pose = f.read().split()
         pose = np.array(pose).astype(np.float32)
+
+        # change pose from [x, y, z, qw, qx, qy, qz] to [x, y, z, qx, qy, qz, qw]
+        pose = np.concatenate((pose[:3], pose[4:], pose[3:4]))
     return pose
 
 
@@ -70,20 +73,24 @@ def get_sim_cam_mat_with_fov(h, w, fov):
 
 
 def get_realsense_cam_mat():
-    K = np.array([[386.458, 0, 321.111],
-                  [0, 386.458, 241.595],
-                  [0, 0, 1]])
+    K = np.array([[386.458, 0, 321.111], [0, 386.458, 241.595], [0, 0, 1]])
     return K
 
 
 def get_kinect_cam_mat():
-    K = np.array([[9.7096624755859375e+02, 0., 1.0272059326171875e+03],
-                  [0., 9.7109600830078125e+02, 7.7529718017578125e+02],
-                  [0., 0., 1]])
+    K = np.array(
+        [
+            [9.7096624755859375e02, 0.0, 1.0272059326171875e03],
+            [0.0, 9.7109600830078125e02, 7.7529718017578125e02],
+            [0.0, 0.0, 1],
+        ]
+    )
     return K
 
 
-def create_point_cloud(img_id, obj_data, cam_mat, params, color=(1, 0, 0), cam_height=0.9):
+def create_point_cloud(
+    img_id, obj_data, cam_mat, params, color=(1, 0, 0), cam_height=0.9
+):
     """
     Generates a point cloud from a depth image, camera intrinsics, mask, and pose.
     Only points within the mask and with valid depth are added to the cloud.
@@ -92,7 +99,7 @@ def create_point_cloud(img_id, obj_data, cam_mat, params, color=(1, 0, 0), cam_h
 
     depth = get_depth(img_id, params)
     pose = get_pose(img_id, params)
-    mask = obj_data['mask']
+    mask = obj_data["mask"]
 
     if pose is None:
         return o3d.geometry.PointCloud()
@@ -117,11 +124,11 @@ def create_point_cloud(img_id, obj_data, cam_mat, params, color=(1, 0, 0), cam_h
     quat = pose[3:]
     rot = R.from_quat(quat).as_matrix()
 
-    # # Apply rotation correction, to match the orientation z: backward, y: upward, and x: right
-    # rot_ro_cam = np.eye(3)
-    # rot_ro_cam[1, 1] = -1
-    # rot_ro_cam[2, 2] = -1
-    # rot = rot @ rot_ro_cam
+    # Apply rotation correction, to match the orientation z: backward, y: upward, and x: right
+    rot_ro_cam = np.eye(3)
+    rot_ro_cam[1, 1] = -1
+    rot_ro_cam[2, 2] = -1
+    rot = rot @ rot_ro_cam
 
     # # Apply position correction
     # pos[1] += cam_height
@@ -140,13 +147,14 @@ def create_point_cloud(img_id, obj_data, cam_mat, params, color=(1, 0, 0), cam_h
     pcd.points = o3d.utility.Vector3dVector(points3d_global.T)
 
     # Assign color to the point cloud
-    pcd.colors = o3d.utility.Vector3dVector(np.tile(color, (points3d_global.shape[1], 1)))
+    pcd.colors = o3d.utility.Vector3dVector(
+        np.tile(color, (points3d_global.shape[1], 1))
+    )
 
     return pcd
 
 
 def fast_DBSCAN(point_cloud_o3d, eps=0.2, min_samples=20):
-
     if point_cloud_o3d.is_empty():
         return point_cloud_o3d
 
@@ -184,24 +192,33 @@ def fast_DBSCAN(point_cloud_o3d, eps=0.2, min_samples=20):
 
     # Create a new Open3D point cloud with the points and colors of the largest cluster
     largest_cluster_point_cloud_o3d = o3d.geometry.PointCloud()
-    largest_cluster_point_cloud_o3d.points = o3d.utility.Vector3dVector(largest_cluster_points)
-    largest_cluster_point_cloud_o3d.colors = o3d.utility.Vector3dVector(largest_cluster_colors)
+    largest_cluster_point_cloud_o3d.points = o3d.utility.Vector3dVector(
+        largest_cluster_points
+    )
+    largest_cluster_point_cloud_o3d.colors = o3d.utility.Vector3dVector(
+        largest_cluster_colors
+    )
 
     return largest_cluster_point_cloud_o3d
 
 
 def vanilla_icp(source, target, params):
     # Set ICP configuration
-    config = o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=1e-6,
-                                                               relative_rmse=1e-6, max_iteration=params['icp_max_iter'])
+    config = o3d.pipelines.registration.ICPConvergenceCriteria(
+        relative_fitness=1e-6, relative_rmse=1e-6, max_iteration=params["icp_max_iter"]
+    )
 
-    icp_threshold = params['voxel_size'] * params['icp_threshold_multiplier']
+    icp_threshold = params["voxel_size"] * params["icp_threshold_multiplier"]
 
     # Run ICP
     result_icp = o3d.pipelines.registration.registration_icp(
-        source, target, icp_threshold, np.eye(4),
+        source,
+        target,
+        icp_threshold,
+        np.eye(4),
         o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-        config)
+        config,
+    )
 
     # Update pcd based on the transformation matrix obtained from ICP
     source.transform(result_icp.transformation)
@@ -209,10 +226,10 @@ def vanilla_icp(source, target, params):
 
 
 def process_pcd(pcd, params, run_dbscan=True):
-    pcd = pcd.voxel_down_sample(voxel_size=params['voxel_size'])
+    pcd = pcd.voxel_down_sample(voxel_size=params["voxel_size"])
 
     if run_dbscan:
-        pcd = fast_DBSCAN(pcd, eps=params['eps'], min_samples=params['min_samples'])
+        pcd = fast_DBSCAN(pcd, eps=params["eps"], min_samples=params["min_samples"])
 
     return pcd
 
@@ -226,10 +243,13 @@ def get_bounding_box(pcd, params):
 
 
 def check_background(obj_data):
-    background_words = ['ceiling', 'wall', 'floor', 'pillar', 'door', 'basement', 'room', 'workshop', 'warehouse']
-    background_phrase = ['office']
+    # background_words = ['ceiling', 'wall', 'floor', 'pillar', 'door', 'basement', 'room', 'workshop', 'warehouse', 'building']
+    # background_phrase = ['office']
 
-    obj_phrase = obj_data['phrase']
+    background_words = ["room", "rooms"]
+    background_phrase = []
+
+    obj_phrase = obj_data["phrase"]
     if obj_phrase in background_phrase:
         return True
 
