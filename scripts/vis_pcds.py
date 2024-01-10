@@ -9,14 +9,17 @@ from collections import Counter
 import random
 
 CLIP_SIM_THRESHOLD = 0.80
-check_gt = False
+check_gt = True
 
 moving_point = None
 target_position = np.array([-1.75459462, -6.80577113, 0.95867251])
 is_moving = False
 
-target_obj_id = None #437 is wheelchair
-forward_vector = np.array([0, -1, 0])  # Assuming initial forward direction is along Y-axis
+target_obj_id = None  # 437 is wheelchair
+forward_vector = np.array(
+    [0, -1, 0]
+)  # Assuming initial forward direction is along Y-axis
+
 
 def generate_pastel_color():
     # generate (r, g, b) tuple of random numbers between 0.5 and 1, truncate to 2 decimal places
@@ -26,11 +29,13 @@ def generate_pastel_color():
     color = np.array([r, g, b])
     return color
 
+
 def reset_colors(vis):
     for _, pcd, original_color, _, _ in point_clouds:
         pcd.paint_uniform_color(original_color)
         vis.update_geometry(pcd)
     return
+
 
 def color_by_clip_sim(vis):
     text_query = input("Enter your query: ")
@@ -41,10 +46,18 @@ def color_by_clip_sim(vis):
     text_query_ft = text_query_ft / text_query_ft.norm(dim=-1, keepdim=True)
     text_query_ft = text_query_ft.squeeze()
 
-    objects_clip_fts = torch.stack([torch.tensor(scene_obj_nodes[node_id]['clip_embed'])
-                                   for node_id, _, _, _, _ in point_clouds]).to(device)
-    similarities = F.cosine_similarity(text_query_ft.unsqueeze(0), objects_clip_fts, dim=-1)
-    normalized_similarities = (similarities - similarities.min()) / (similarities.max() - similarities.min())
+    objects_clip_fts = torch.stack(
+        [
+            torch.tensor(scene_obj_nodes[node_id]["clip_embed"])
+            for node_id, _, _, _, _ in point_clouds
+        ]
+    ).to(device)
+    similarities = F.cosine_similarity(
+        text_query_ft.unsqueeze(0), objects_clip_fts, dim=-1
+    )
+    normalized_similarities = (similarities - similarities.min()) / (
+        similarities.max() - similarities.min()
+    )
 
     cmap = matplotlib.colormaps.get_cmap("turbo")
     similarity_colors = cmap(normalized_similarities.detach().cpu().numpy())[..., :3]
@@ -55,6 +68,7 @@ def color_by_clip_sim(vis):
         )
         vis.update_geometry(pcd)
     return
+
 
 def instance_coloring_callback(vis):
     target_node_id = input("Enter the node_id to color: ")
@@ -76,6 +90,7 @@ def instance_coloring_callback(vis):
         vis.update_geometry(pcd)
     return
 
+
 def clip_similarity_find_obj(vis, check_gt=False):
     text = input("Enter the query to find relevant objects: ")
     text_queries = [text]
@@ -89,13 +104,23 @@ def clip_similarity_find_obj(vis, check_gt=False):
     highlighted_ids = []
 
     matching_count = 0  # Counter for matching objects
-    objects_clip_fts = torch.stack([torch.tensor(scene_obj_nodes[node_id]['clip_embed'])
-                                   for node_id, _, _, _, _ in point_clouds]).to(device)
-    similarities = F.cosine_similarity(text_features.unsqueeze(0), objects_clip_fts, dim=-1)
-    normalized_similarities = (similarities - similarities.min()) / (similarities.max() - similarities.min())
+    objects_clip_fts = torch.stack(
+        [
+            torch.tensor(scene_obj_nodes[node_id]["clip_embed"])
+            for node_id, _, _, _, _ in point_clouds
+        ]
+    ).to(device)
+    similarities = F.cosine_similarity(
+        text_features.unsqueeze(0), objects_clip_fts, dim=-1
+    )
+    normalized_similarities = (similarities - similarities.min()) / (
+        similarities.max() - similarities.min()
+    )
 
     # sort the normalized similarities and print them
-    sorted_similarities, sorted_indices = torch.sort(normalized_similarities, descending=True)
+    sorted_similarities, sorted_indices = torch.sort(
+        normalized_similarities, descending=True
+    )
     # print("Sorted similarities: ", sorted_similarities)
 
     # color the objects with similarity greater than CLIP_SIM_THRESHOLD
@@ -122,14 +147,22 @@ def clip_similarity_find_obj(vis, check_gt=False):
         ground_truths_count = len(gt_tag_id_counter)
 
         # Get FP and FN from highlighted_ids and ground_truths
-        FP = [node_id for node_id in highlighted_ids if node_id not in ground_truths_node_ids]
-        FN = [node_id for node_id in ground_truths_node_ids if node_id not in highlighted_ids]
+        FP = [
+            node_id
+            for node_id in highlighted_ids
+            if node_id not in ground_truths_node_ids
+        ]
+        FN = [
+            node_id
+            for node_id in ground_truths_node_ids
+            if node_id not in highlighted_ids
+        ]
 
         print("------------------------------------")
         print(f"Ground truth count: {ground_truths_count}")
         print("------------------------------------")
-        print(f'GT Node IDs: {ground_truths_node_ids}')
-        print(f'Highlighted IDs: {highlighted_ids}')
+        print(f"GT Node IDs: {ground_truths_node_ids}")
+        print(f"Highlighted IDs: {highlighted_ids}")
         print("------------------------------------")
         print(f"Ground truth count (including ghosts): {len(ground_truths_node_ids)}")
         print(f"Detected object count: {matching_count}")
@@ -149,12 +182,14 @@ def clip_similarity_find_obj(vis, check_gt=False):
     #     print(f"Target Position: {target_position}")
     return
 
+
 def create_point_at_position(position, color):
     point = np.array([position])
     point_cloud = o3d.geometry.PointCloud()
     point_cloud.points = o3d.utility.Vector3dVector(point)
     point_cloud.paint_uniform_color(color)
     return point_cloud
+
 
 def move_point_callback(vis):
     global moving_point, is_moving
@@ -168,6 +203,7 @@ def move_point_callback(vis):
 
     # Start moving
     is_moving = True
+
 
 def timer_callback(vis):
     global moving_point, is_moving
@@ -188,24 +224,34 @@ def timer_callback(vis):
             print("Target reached.")
             is_moving = False
 
+
 def move_object(vis, direction, step_size=0.1):
     global point_clouds, target_obj_id, forward_vector
 
     for node_id, pcd, _, _, _ in point_clouds:
         if node_id == target_obj_id:
             # Move the object along the forward vector
-            translation_vector = forward_vector * step_size if direction == "forward" else -forward_vector * step_size
+            translation_vector = (
+                forward_vector * step_size
+                if direction == "forward"
+                else -forward_vector * step_size
+            )
             pcd.translate(translation_vector)
             vis.update_geometry(pcd)
             break
 
-def rotate_object(vis, direction, angle=np.pi/12):
+
+def rotate_object(vis, direction, angle=np.pi / 12):
     global point_clouds, target_obj_id, forward_vector
 
     for node_id, pcd, _, _, _ in point_clouds:
         if node_id == target_obj_id:
             # Rotate the object and update the forward vector
-            rotation_matrix = o3d.geometry.get_rotation_matrix_from_axis_angle((0, 0, angle)) if direction == "right" else o3d.geometry.get_rotation_matrix_from_axis_angle((0, 0, -angle))
+            rotation_matrix = (
+                o3d.geometry.get_rotation_matrix_from_axis_angle((0, 0, angle))
+                if direction == "right"
+                else o3d.geometry.get_rotation_matrix_from_axis_angle((0, 0, -angle))
+            )
             pcd.rotate(rotation_matrix, center=pcd.get_center())
             forward_vector = rotation_matrix.dot(forward_vector)
             vis.update_geometry(pcd)
@@ -217,11 +263,15 @@ clip_model_name = "ViT-H-14"
 print("Initializing CLIP model...")
 device = "cpu"
 if clip_model_name == "ViT-H-14":
-    clip_model, _, clip_preprocess = open_clip.create_model_and_transforms("ViT-H-14", "laion2b_s32b_b79k")
+    clip_model, _, clip_preprocess = open_clip.create_model_and_transforms(
+        "ViT-H-14", "laion2b_s32b_b79k"
+    )
     clip_model = clip_model.to(device)
     clip_tokenizer = open_clip.get_tokenizer("ViT-H-14")
 elif clip_model_name == "ViT-B-32":
-    clip_model, _, clip_preprocess = open_clip.create_model_and_transforms("ViT-B-32", "laion2b_s34b_b79k")
+    clip_model, _, clip_preprocess = open_clip.create_model_and_transforms(
+        "ViT-B-32", "laion2b_s34b_b79k"
+    )
     clip_model = clip_model.to(device)
     clip_tokenizer = open_clip.get_tokenizer("ViT-B-32")
 else:
@@ -230,7 +280,7 @@ print("Done initializing CLIP model.")
 
 # Load the scene object nodes
 all_datasets_path = "/Users/kumaraditya/Desktop/Datasets"
-dataset_path = f"{all_datasets_path}/run_kinect_wheel_3/output_v3"
+dataset_path = f"{all_datasets_path}/run_kinect_wheel_2/output_v1.2"
 scene_obj_nodes_path = f"{dataset_path}/scene_obj_nodes.pkl"
 with open(scene_obj_nodes_path, "rb") as f:
     scene_obj_nodes = pickle.load(f)
@@ -251,14 +301,14 @@ opt.background_color = np.asarray([0.1, 0.1, 0.1])  # Setting to dark gray
 # Load point clouds and store original colors
 point_clouds = []
 for node_id, node_data in scene_obj_nodes.items():
-    pcd_path = node_data['pcd']
-    pcd_path = pcd_path.replace('/scratch/kumaraditya_gupta/Datasets', all_datasets_path)
+    pcd_path = node_data["pcd"]
+    pcd_path = pcd_path.replace("/scratch/kumaradi.gupta/Datasets", all_datasets_path)
     pcd = o3d.io.read_point_cloud(pcd_path)
     pcd = pcd.voxel_down_sample(voxel_size=0.05)
     original_color = np.asarray(pcd.colors)[0].tolist()
 
     try:
-        gt_tag, gt_tag_id = node_data['gt_tag'], node_data['gt_tag_id']
+        gt_tag, gt_tag_id = node_data["gt_tag"], node_data["gt_tag_id"]
     except KeyError:
         gt_tag, gt_tag_id = [], []
     point_clouds.append((node_id, pcd, original_color, gt_tag, gt_tag_id))
@@ -274,10 +324,18 @@ vis.register_key_callback(ord("M"), move_point_callback)
 vis.register_animation_callback(timer_callback)
 
 # Register key callbacks for movement and rotation
-vis.register_key_callback(265, lambda vis: move_object(vis, "forward"))    # Up arrow key for moving forward
-vis.register_key_callback(264, lambda vis: move_object(vis, "backward"))  # Down arrow key for moving backward
-vis.register_key_callback(263, lambda vis: rotate_object(vis, "right")) # Right arrow key for rotating right
-vis.register_key_callback(262, lambda vis: rotate_object(vis, "left"))  # Left arrow key for rotating left
+vis.register_key_callback(
+    265, lambda vis: move_object(vis, "forward")
+)  # Up arrow key for moving forward
+vis.register_key_callback(
+    264, lambda vis: move_object(vis, "backward")
+)  # Down arrow key for moving backward
+vis.register_key_callback(
+    263, lambda vis: rotate_object(vis, "right")
+)  # Right arrow key for rotating right
+vis.register_key_callback(
+    262, lambda vis: rotate_object(vis, "left")
+)  # Left arrow key for rotating left
 
 # Run the visualizer
 vis.run()
