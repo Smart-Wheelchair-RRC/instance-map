@@ -17,5 +17,5 @@ DATASET_DIRS=(
 # Loop through each dataset directory and run the script
 for DATASET_DIR in "${DATASET_DIRS[@]}"
 do
-    python scripts/gsam_bg_classes.py --weights_dir "/scratch/kumaraditya_gupta/checkpoints" --dataset_dir "$DATASET_DIR" --stride 2 --box_threshold 0.35 --text_threshold 0.35 --version "v2"
+    python scripts/gsam.py --weights_dir "/scratch/kumaraditya_gupta/checkpoints" --dataset_dir "$DATASET_DIR" --stride 2 --box_threshold 0.35 --text_threshold 0.35 --version "output_objs_v1"
 done

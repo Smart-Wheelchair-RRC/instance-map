@@ -21,6 +21,10 @@ from GroundingDINO.groundingdino.util.inference import load_model, load_image, p
 # Segment Anything
 from segment_anything import build_sam, SamPredictor
 
+# RAM
+from ram.models import ram
+from ram import inference_ram as inference
+
 # Embeddings
 import open_clip
 
@@ -74,6 +78,97 @@ def init_img_dict(img_dict, img_files, imgs_dir):
             "ram_tags": background_prompt,
             "objs": {},
         }
+
+    return img_dict
+
+
+def generate_ram_tags(img_dict, img_files, imgs_dir):
+    print("Loading RAM model...")
+    image_size = 384  # default value
+    pretrained = f"{weights_dir}/ram_swin_large_14m.pth"
+
+    normalize = transforms.Normalize(
+        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+    )
+    transform = transforms.Compose(
+        [transforms.Resize((image_size, image_size)), transforms.ToTensor(), normalize]
+    )
+
+    # Load model
+    ram_model = ram(pretrained=pretrained, image_size=image_size, vit="swin_l")
+    ram_model.eval()
+
+    ram_model = ram_model.to(device)
+
+    print("Generating RAM tags...")
+    add_classes = ["other item"]
+    remove_classes = [
+        "room",
+        "kitchen",
+        "office",
+        "house",
+        "home",
+        "building",
+        "corner",
+        "shadow",
+        "carpet",
+        "photo",
+        "shade",
+        "stall",
+        "space",
+        "aquarium",
+        "apartment",
+        "image",
+        "city",
+        "blue",
+        "skylight",
+        "hallway",
+        "bureau",
+        "modern",
+        "salon",
+        "doorway",
+        "wall lamp",
+        "pillar",
+        "door",
+        "basement",
+        "workshop",
+        "warehouse",
+    ]
+    bg_classes = ["wall", "floor", "ceiling", "office"]
+
+    for i, img_file in enumerate(tqdm(img_files)):
+        img_id = os.path.splitext(img_file)[0]
+        img_path = os.path.join(imgs_dir, img_file)
+        raw_image = Image.open(img_path).convert("RGB").resize((image_size, image_size))
+        image = transform(raw_image).unsqueeze(0).to(device)
+
+        ram_tags = inference(image, ram_model)[0]
+        ram_tags = ram_tags.split(" | ")  # Split the tags
+
+        ram_tags = [tag for tag in ram_tags if tag not in bg_classes]
+        for tag in ram_tags:
+            words = tag.split()
+            for word in words:
+                if word in remove_classes:
+                    ram_tags.remove(tag)
+                    break
+        ram_tags.extend(add_classes)
+
+        # ram_tags = [tag.split() for tag in ram_tags] # Split the tags into words
+        # ram_tags = [item for sublist in ram_tags for item in sublist] # Flatten the list
+        # ram_tags = list(set(ram_tags) & set(req_tags)) # Get the intersection of the tags
+
+        ram_tags = " , ".join(
+            str(tag) for tag in ram_tags
+        )  # Join the tags with a period
+        # print(ram_tags)
+
+        # Add the img_path and ram_tags to the dictionary
+        img_dict[img_id] = {"img_path": img_path, "ram_tags": ram_tags, "objs": {}}
+
+    del ram_model
+    torch.cuda.empty_cache()
+    gc.collect()
 
     return img_dict
 
@@ -301,7 +396,8 @@ def main():
 
     img_dict = {}
     print("Initializing image dictionary...")
-    img_dict = init_img_dict(img_dict, img_files, imgs_dir)
+    # img_dict = init_img_dict(img_dict, img_files, imgs_dir)
+    img_dict = generate_ram_tags(img_dict, img_files, imgs_dir)
 
     print("Loading models...")
     GDINO_model, sam_predictor = get_segment_models()

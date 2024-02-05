@@ -13,7 +13,7 @@ from scipy.spatial.transform import Rotation as R
 
 import open3d as o3d
 
-dataset_path = "/scratch/kumaraditya_gupta/Datasets/mp3d_test/sT4fr6TAbpF/sequence1/"
+dataset_path = "/scratch/kumaraditya_gupta/Datasets/mp3d_test/RPmz2sHmrrY/sequence4/"
 
 imgs_dir = os.path.join(dataset_path, "color/")
 depth_dir = os.path.join(dataset_path, "depth/")
@@ -53,6 +53,13 @@ def get_pose(img_name):
     return pose
 
 
+def pose_correction_matrix(pose_matrix):
+    # New rotation angles in radians
+    new_rot = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
+
+    return new_rot
+
+
 def create_pcd_from_rgbd(img_files_list):
     pcd_global = o3d.geometry.PointCloud()
 
@@ -90,7 +97,7 @@ def create_pcd_from_rgbd(img_files_list):
         voxel_size = 0.05  # adjust this value to change the number of points
         pcd = pcd.voxel_down_sample(voxel_size)
 
-        # Parse the pose
+        # Parse the pose [x, y, z, qx, qy, qz, qw]
         pos = np.array(pose[:3], dtype=float).reshape((3, 1))
         quat = pose[3:]
         rot = R.from_quat(quat).as_matrix()
@@ -99,14 +106,20 @@ def create_pcd_from_rgbd(img_files_list):
         rot_ro_cam = np.eye(3)
         rot_ro_cam[1, 1] = -1
         rot_ro_cam[2, 2] = -1
-        rot = rot @ rot_ro_cam
+        # Additional rotation to get the points in the correct orientation
+        new_rot = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
+
+        combined_rot = new_rot @ rot @ rot_ro_cam
+
+        cam_height = 1.50
+        pos[1] += cam_height
 
         # Create the pose matrix
         pose_matrix = np.eye(4)
-        pose_matrix[:3, :3] = rot
+        pose_matrix[:3, :3] = combined_rot
         pose_matrix[:3, 3] = pos.reshape(-1)
-        pcd.transform(pose_matrix)
 
+        pcd.transform(pose_matrix)
         pcd = pcd.voxel_down_sample(voxel_size=0.05)
 
         # Add the point cloud to the global point cloud
@@ -127,7 +140,9 @@ def main():
 
     pcd_global = create_pcd_from_rgbd(img_files_list)
 
-    o3d.io.write_point_cloud(os.path.join(save_dir, "pointcloud.ply"), pcd_global)
+    o3d.io.write_point_cloud(
+        os.path.join(save_dir, "pointcloud_aligned.ply"), pcd_global
+    )
 
 
 if __name__ == "__main__":

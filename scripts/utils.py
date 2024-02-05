@@ -43,7 +43,7 @@ def get_depth(img_name, params):
 
     depth_path = os.path.join(params["depth_dir"], img_name + ".png")
     depth = cv2.imread(depth_path, cv2.IMREAD_ANYDEPTH)
-    depth = depth.astype(np.float32) / 1000.0
+    depth = depth.astype(np.float32) / params["depth_scale"]
     return depth
 
 
@@ -84,19 +84,69 @@ def get_kinect_cam_mat():
             [0.0, 9.7109600830078125e02, 7.7529718017578125e02],
             [0.0, 0.0, 1],
         ]
-    )
+    )  # for wheel
+
+    # K = np.array([[5.0449380493164062e+02, 0., 3.3090179443359375e+02],
+    #               [0., 5.0470922851562500e+02, 3.1253039550781250e+02],
+    #               [0., 0., 1.]]) # for handheld
     return K
 
 
-def create_point_cloud(
-    img_id, obj_data, cam_mat, params, color=(1, 0, 0), cam_height=0.9
-):
+def get_ipad_cam_mat():
+    K = np.array(
+        [
+            [7.9555474853515625e02, 0.0, 3.6264770507812500e02],
+            [0.0, 7.9555474853515625e02, 4.7412319946289062e02],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+
+    # Downsample factor
+    downsample_factor = 3.75
+
+    # Scale down the camera matrix
+    scaled_K = K.copy()
+    scaled_K[0, 0] /= downsample_factor  # fx
+    scaled_K[1, 1] /= downsample_factor  # fy
+    scaled_K[0, 2] /= downsample_factor  # cx
+    scaled_K[1, 2] /= downsample_factor  # cy
+
+    return scaled_K
+
+
+def get_iphone_cam_mat():
+    K = np.array(
+        [
+            [6.6585675048828125e02, 0.0, 3.5704681396484375e02],
+            [0.0, 6.6585675048828125e02, 4.8127374267578125e02],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+
+    # Downsample factor
+    downsample_factor = 3.75
+
+    # Scale down the camera matrix
+    scaled_K = K.copy()
+    scaled_K[0, 0] /= downsample_factor  # fx
+    scaled_K[1, 1] /= downsample_factor  # fy
+    scaled_K[0, 2] /= downsample_factor  # cx
+    scaled_K[1, 2] /= downsample_factor  # cy
+
+    return scaled_K
+
+
+def get_mp3d_cam_mat():
+    K = np.array([[400.0, 0.0, 400.0], [0.0, 400.0, 400.0], [0.0, 0.0, 1.0]])
+    return K
+
+
+def create_point_cloud(img_id, obj_data, params, color=(1, 0, 0)):
     """
     Generates a point cloud from a depth image, camera intrinsics, mask, and pose.
     Only points within the mask and with valid depth are added to the cloud.
     Points are colored using the specified color.
     """
-
     depth = get_depth(img_id, params)
     pose = get_pose(img_id, params)
     mask = obj_data["mask"]
@@ -108,7 +158,7 @@ def create_point_cloud(
     rows, cols = np.where(mask)
 
     depth_values = depth[rows, cols]
-    valid_depth_indices = (depth_values > 0) & (depth_values <= 5)
+    valid_depth_indices = (depth_values > 0) & (depth_values <= 10)
 
     rows = rows[valid_depth_indices]
     cols = cols[valid_depth_indices]
@@ -116,8 +166,9 @@ def create_point_cloud(
 
     points2d = np.vstack([cols, rows, np.ones_like(rows)])
 
-    cam_mat_inv = np.linalg.inv(cam_mat)
+    cam_mat_inv = np.linalg.inv(params["cam_mat"])
     points3d_cam = cam_mat_inv @ points2d * depth_values
+    points3d_homo = np.vstack([points3d_cam, np.ones((1, points3d_cam.shape[1]))])
 
     # Parse the pose
     pos = np.array(pose[:3], dtype=float).reshape((3, 1))
@@ -128,28 +179,33 @@ def create_point_cloud(
     rot_ro_cam = np.eye(3)
     rot_ro_cam[1, 1] = -1
     rot_ro_cam[2, 2] = -1
+
     rot = rot @ rot_ro_cam
 
-    # # Apply position correction
-    # pos[1] += cam_height
+    # Apply position correction
+    pos[1] += params["cam_height"]
 
     # Create the pose matrix
     pose_matrix = np.eye(4)
     pose_matrix[:3, :3] = rot
     pose_matrix[:3, 3] = pos.reshape(-1)
 
-    # Transform the points to global frame
-    points3d_homo = np.vstack([points3d_cam, np.ones((1, points3d_cam.shape[1]))])
     points3d_global_homo = pose_matrix @ points3d_homo
     points3d_global = points3d_global_homo[:3, :]
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points3d_global.T)
-
-    # Assign color to the point cloud
     pcd.colors = o3d.utility.Vector3dVector(
         np.tile(color, (points3d_global.shape[1], 1))
     )
+
+    # Additional rotation to get the points in the correct orientation
+    new_rot = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
+    new_rot_matrix = np.eye(4)
+    new_rot_matrix[:3, :3] = new_rot
+
+    # Apply new_rot to the point cloud using the transform function
+    pcd.transform(new_rot_matrix)
 
     return pcd
 
@@ -243,11 +299,22 @@ def get_bounding_box(pcd, params):
 
 
 def check_background(obj_data):
-    # background_words = ['ceiling', 'wall', 'floor', 'pillar', 'door', 'basement', 'room', 'workshop', 'warehouse', 'building']
-    # background_phrase = ['office']
+    background_words = [
+        "ceiling",
+        "wall",
+        "floor",
+        "pillar",
+        "door",
+        "basement",
+        "room",
+        "workshop",
+        "warehouse",
+        "building",
+    ]
+    background_phrase = ["office"]
 
-    background_words = ["room", "rooms"]
-    background_phrase = []
+    # background_words = ["room", "rooms"]
+    # background_phrase = []
 
     obj_phrase = obj_data["phrase"]
     if obj_phrase in background_phrase:
