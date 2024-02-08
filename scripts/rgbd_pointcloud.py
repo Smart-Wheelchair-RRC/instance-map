@@ -13,30 +13,20 @@ from scipy.spatial.transform import Rotation as R
 
 import open3d as o3d
 
-dataset_path = "/scratch/kumaraditya_gupta/Datasets/mp3d_test/RPmz2sHmrrY/sequence4/"
 
-imgs_dir = os.path.join(dataset_path, "color/")
-depth_dir = os.path.join(dataset_path, "depth/")
-pose_dir = os.path.join(dataset_path, "pose/")
-# save_dir = os.path.join(dataset_path, "output_v1/")
-save_dir = dataset_path
-
-if not os.path.exists(save_dir):
-    os.makedirs(save_dir)
-
-
-def get_depth(img_name):
-    # depth_path = os.path.join(depth_dir, img_name + '.npy')
-    # depth = np.load(depth_path)
-
-    depth_path = os.path.join(depth_dir, img_name + ".png")
-    depth = cv2.imread(depth_path, cv2.IMREAD_ANYDEPTH)
-    # depth = depth.astype(np.float32) / 1000.0
-    depth = depth.astype(np.float32) / 655.35
-    return depth
+DATASET_DIRS = [
+    "/scratch/kumaraditya_gupta/Datasets/mp3d_test/q9vSo1VnCiC/sequence1/",
+    "/scratch/kumaraditya_gupta/Datasets/mp3d_test/sT4fr6TAbpF/sequence1/",
+    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/Pm6F8kyY3z2/sequence2/",
+    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/cV4RVeZvu5T/sequence2/",
+    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/e9zR4mvMWw7/sequence2/",
+    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/jh4fc5c5qoQ/sequence2/",
+    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/kEZ7cmS4wCh/sequence2/",
+    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/sKLMLpTHeUy/sequence2/",
+]
 
 
-def get_pose(img_name):
+def get_pose(img_name, pose_dir):
     pose_path = os.path.join(pose_dir, img_name + ".txt")
 
     # check if the pose file exists, if it doesn't, return None
@@ -53,14 +43,7 @@ def get_pose(img_name):
     return pose
 
 
-def pose_correction_matrix(pose_matrix):
-    # New rotation angles in radians
-    new_rot = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
-
-    return new_rot
-
-
-def create_pcd_from_rgbd(img_files_list):
+def create_pcd_from_rgbd(img_files_list, imgs_dir, depth_dir, pose_dir):
     pcd_global = o3d.geometry.PointCloud()
 
     # For each image, load the RGB-D image and transform the point cloud to the global frame
@@ -73,7 +56,7 @@ def create_pcd_from_rgbd(img_files_list):
         depth_path = os.path.join(depth_dir, img_id + ".png")
         depth_image = o3d.io.read_image(depth_path)
 
-        pose = get_pose(img_id)
+        pose = get_pose(img_id, pose_dir)
 
         intrinsics = o3d.camera.PinholeCameraIntrinsic(
             900,  # width
@@ -106,10 +89,8 @@ def create_pcd_from_rgbd(img_files_list):
         rot_ro_cam = np.eye(3)
         rot_ro_cam[1, 1] = -1
         rot_ro_cam[2, 2] = -1
-        # Additional rotation to get the points in the correct orientation
-        new_rot = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
 
-        combined_rot = new_rot @ rot @ rot_ro_cam
+        combined_rot = rot @ rot_ro_cam
 
         cam_height = 1.50
         pos[1] += cam_height
@@ -120,6 +101,15 @@ def create_pcd_from_rgbd(img_files_list):
         pose_matrix[:3, 3] = pos.reshape(-1)
 
         pcd.transform(pose_matrix)
+
+        # Additional rotation to get the points in the correct orientation
+        new_rot = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
+        new_rot_matrix = np.eye(4)
+        new_rot_matrix[:3, :3] = new_rot
+
+        # Apply new_rot to the point cloud using the transform function
+        pcd.transform(new_rot_matrix)
+
         pcd = pcd.voxel_down_sample(voxel_size=0.05)
 
         # Add the point cloud to the global point cloud
@@ -130,19 +120,32 @@ def create_pcd_from_rgbd(img_files_list):
 
 
 def main():
-    img_files_list = [
-        f for f in os.listdir(imgs_dir) if os.path.isfile(os.path.join(imgs_dir, f))
-    ]
-    img_files_list = sorted(img_files_list, key=lambda x: int(x.split(".")[0]))
 
-    stride = 1
-    img_files_list = img_files_list[::stride]
+    for dataset in DATASET_DIRS:
+        dataset_path = dataset
 
-    pcd_global = create_pcd_from_rgbd(img_files_list)
+        imgs_dir = os.path.join(dataset_path, "color/")
+        depth_dir = os.path.join(dataset_path, "depth/")
+        pose_dir = os.path.join(dataset_path, "pose/")
+        # save_dir = os.path.join(dataset_path, "output_v1/")
+        save_dir = dataset_path
 
-    o3d.io.write_point_cloud(
-        os.path.join(save_dir, "pointcloud_aligned.ply"), pcd_global
-    )
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
+        img_files_list = [
+            f for f in os.listdir(imgs_dir) if os.path.isfile(os.path.join(imgs_dir, f))
+        ]
+        img_files_list = sorted(img_files_list, key=lambda x: int(x.split(".")[0]))
+
+        stride = 2
+        img_files_list = img_files_list[::stride]
+
+        pcd_global = create_pcd_from_rgbd(img_files_list, imgs_dir, depth_dir, pose_dir)
+
+        o3d.io.write_point_cloud(
+            os.path.join(save_dir, "pointcloud_aligned.ply"), pcd_global
+        )
 
 
 if __name__ == "__main__":

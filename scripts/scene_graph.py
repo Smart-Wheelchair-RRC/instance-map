@@ -399,7 +399,7 @@ def merge_overlap_nodes(params, scene_obj_nodes, overlap_matrix):
 
 
 def merge_scene_nodes(scene_obj_nodes, params):
-    if params["merge_overlap_thresh"] > 0:
+    if params["merge_overall_thresh"] > 0:
         print("Before merging:", len(scene_obj_nodes))
 
         # Compute the overlap matrix

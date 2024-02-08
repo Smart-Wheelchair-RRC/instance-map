@@ -307,11 +307,33 @@ def check_background(obj_data):
         "door",
         "basement",
         "room",
+        "rooms",
         "workshop",
         "warehouse",
         "building",
+        "apartment",
+        "image",
+        "city",
+        "blue",
+        "skylight",
+        "hallway",
+        "bureau",
+        "modern",
+        "salon",
+        "doorway",
+        "house",
+        "home",
+        "carpet",
+        "space",
     ]
-    background_phrase = ["office"]
+    background_phrase = [
+        "kitchen",
+        "bedroom",
+        "home office",
+        "wood",
+        "hardwood",
+        "office",
+    ]
 
     # background_words = ["room", "rooms"]
     # background_phrase = []

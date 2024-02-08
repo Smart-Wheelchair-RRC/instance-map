@@ -49,9 +49,12 @@ img_dict_dir = os.path.join(output_dir, "img_dict.pkl")
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 params = {
-    "init_img_id": "001",  # initialize the scene with this image
+    "init_img_id": "001",  # initialize the scene with this image, overriden by the first image in img_dict
     "stride": args.stride,  # stride value for scene graph
     "depth_scale": 655.35,  # depth scale for converting depth image to meters (std value: 1000.0)
+    "depth_dir": depth_dir,  # directory containing depth images
+    "pose_dir": pose_dir,  # directory containing pose files
+    "device": device,  # device to use for processing
     "voxel_size": 0.025,  # voxel size for downsampling point clouds (std value: 0.025, 0.05, 0.1)
     "eps": 0.075,  # eps for DBSCAN (std value: 0.075, 0.125, 0.25)
     "min_samples": 10,  # min_samples for DBSCAN (std value: 10)
@@ -61,7 +64,7 @@ params = {
     "merge_overlap_method": "nnratio",  # metric to use for merging overlapping nodes
     "merge_overall_thresh": 0.95,  # threshold for overall similarity while merging nodes in scene (0.95, 1.2)
     "obj_min_points": 50,  # minimum number of points in a node while filtering scene nodes
-    "obj_min_detections": 5,  # minimum number of detections in a node while filtering scene nodes
+    "obj_min_detections": 3,  # minimum number of detections in a node while filtering scene nodes
     "icp_threshold_multiplier": 1.5,  # threshold multiplier for ICP
     "icp_max_iter": 2000,  # maximum number of iterations for ICP
     "cam_mat": get_sim_cam_mat_with_fov(900, 900, 90),  # camera matrix
@@ -174,6 +177,9 @@ def main():
     img_dict = {
         k: v for i, (k, v) in enumerate(img_dict.items()) if i % params["stride"] == 0
     }
+
+    # choose init_img_id as the first image in the img_dict
+    params["init_img_id"] = list(img_dict.keys())[0]
 
     scene_obj_nodes = init_scene_nodes(
         img_dict[params["init_img_id"]], params["init_img_id"], params
