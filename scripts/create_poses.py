@@ -1,9 +1,21 @@
 import os
 from tqdm import tqdm
 import csv
+import argparse
+
+
+parser = argparse.ArgumentParser(description="Script parameters")
+parser.add_argument(
+    "--dataset_dir",
+    type=str,
+    default="/scratch/kumaraditya_gupta/Datasets/mp3d_train/sKLMLpTHeUy/sequence2/",
+    help="Directory for dataset",
+)
+
+args = parser.parse_args()
 
 # Define paths
-dataset_path = "/scratch/kumaraditya_gupta/Datasets/mp3d_test/q9vSo1VnCiC/sequence1"
+dataset_path = args.dataset_dir
 poses_file_path = os.path.join(dataset_path, "poses.csv")
 output_path = os.path.join(dataset_path, "pose/")
 

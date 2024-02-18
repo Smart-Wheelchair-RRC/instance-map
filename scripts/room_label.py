@@ -14,7 +14,7 @@ parser = argparse.ArgumentParser(description="Script parameters")
 parser.add_argument(
     "--dataset_dir",
     type=str,
-    default="/scratch/kumaraditya_gupta/Datasets/mp3d_train/sKLMLpTHeUy/sequence2/",
+    default="/scratch/kumaraditya_gupta/Datasets/mp3d_test/RPmz2sHmrrY/sequence4/",
     help="Directory for dataset",
 )
 parser.add_argument(
@@ -67,6 +67,61 @@ ALL_ROOM_TYPES = [
     "none",
 ]
 
+OUR_ROOM_TYPES = [
+    "bathroom",
+    "bedroom",
+    "closet",
+    "dining",
+    "entryway",
+    "living",
+    "garage",
+    "hallway",
+    "library",
+    "laundry",
+    "kitchen",
+    "office",
+    "porch",
+    "stairs",
+    "gym",
+    "outdoor",
+    "balcony",
+    "bar",
+    "other",
+]
+
+OUR_ROOM_DICT = {
+    "bathroom": 0,
+    "toilet": 0,
+    "sauna": 0,
+    "bedroom": 1,
+    "closet": 2,
+    "dining": 3,
+    "entryway": 4,
+    "family": 5,
+    "tv": 5,
+    "living": 5,
+    "lounge": 5,
+    "recreation": 5,
+    "garage": 6,
+    "hallway": 7,
+    "library": 8,
+    "laundry": 9,
+    "utility": 9,
+    "kitchen": 10,
+    "meeting": 11,
+    "office": 11,
+    "porch": 12,
+    "stairs": 13,
+    "gym": 14,
+    "outdoor": 15,
+    "balcony": 16,
+    "bar": 17,
+    "other": 18,
+    "classroom": 18,
+    "junk": 18,
+    "none": 18,
+}
+
 
 def generate_pastel_color():
     # generate (r, g, b) tuple of random numbers between 0.5 and 1, truncate to 2 decimal places
@@ -81,6 +136,39 @@ def load_gt_data(gt_dir, dataset_dir):
     dataset_name = dataset_dir.split("/")[-3]
     gt_file_name = f"{dataset_name}_xyz_rgb_o_r_inst.npy"
     gt = np.load(os.path.join(gt_dir, gt_file_name))  # (N, 9)
+    return gt
+
+
+def update_gt_data(gt):
+    # Maps from old room_label_id to new room_label_id
+    old_to_new_room_id = {
+        ALL_ROOM_TYPES.index(room): OUR_ROOM_DICT[room] for room in OUR_ROOM_DICT
+    }
+
+    # Dictionary to track the new instance number for each unique (new_room_id, old_instance) pair
+    unique_instance_mapping = {}
+
+    # New instance number for each new room ID
+    new_instance_counter = {i: 0 for i in range(0, len(OUR_ROOM_TYPES))}
+
+    for point in gt:
+        old_room_id = int(point[7])
+        old_instance = int(point[8])
+        new_room_id = old_to_new_room_id.get(
+            old_room_id, 18
+        )  # Default to 'other' if not found
+
+        # Unique key for the original room_id and instance combination
+        unique_key = (new_room_id, old_room_id, old_instance)
+
+        if unique_key not in unique_instance_mapping:
+            unique_instance_mapping[unique_key] = new_instance_counter[new_room_id]
+            new_instance_counter[new_room_id] += 1
+
+        # Update the ground truth data with the new room_label_id and new instance number
+        point[7] = new_room_id
+        point[8] = unique_instance_mapping[unique_key]
+
     return gt
 
 
@@ -155,7 +243,7 @@ def assign_room_to_obj(obj_nodes_dict, kd_trees):
         node_data["room_id"] = assigned_room
 
         room_label_id = assigned_room.split("_")[0]
-        node_data["room_label"] = ALL_ROOM_TYPES[int(room_label_id)]
+        node_data["room_label"] = OUR_ROOM_TYPES[int(room_label_id)]
 
     return room_obj_assignments, obj_nodes_dict
 
@@ -180,6 +268,77 @@ def get_top30_objs_per_room(room_obj_assignments, obj_nodes_dict):
             room_obj_assignments_top30[room_id] = top_30_obj_ids
 
     return room_obj_assignments_top30
+
+
+def multi_scale_crop_image(image, bounding_box, kexp=0.1, levels=[0, 1, 2]):
+    height, width = image.shape[:2]
+
+    x, y, w, h = bounding_box
+    xmin = int((x - w / 2).item() * width)
+    ymin = int((y - h / 2).item() * height)
+    xmax = int((x + w / 2).item() * width)
+    ymax = int((y + h / 2).item() * height)
+
+    # Initialize list to hold cropped images
+    cropped_images = []
+
+    # Iterate over each level
+    for l in levels:
+        # Calculate new bounding box coordinates
+        xl1 = max(0, xmin - (xmax - xmin) * kexp * l)
+        yl1 = max(0, ymin - (ymax - ymin) * kexp * l)
+        xl2 = min(xmax + (xmax - xmin) * kexp * l, width - 1)
+        yl2 = min(ymax + (ymax - ymin) * kexp * l, height - 1)
+
+        # Crop and append the image
+        cropped_images.append(image[int(yl1) : int(yl2), int(xl1) : int(xl2)])
+
+    return cropped_images
+
+
+def save_roomwise_imgs(room_obj_assignments, obj_nodes_dict, img_dict):
+    save_path = os.path.join(output_dir, "imgs_roomwise")
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    for room_id, node_ids in room_obj_assignments.items():
+        room_path = os.path.join(save_path, f"{room_id}")
+        if not os.path.exists(room_path):
+            os.makedirs(room_path)
+
+        for node_id in node_ids:
+            k = 3
+            points_contri = obj_nodes_dict[node_id]["points_contri"]
+            source_ids = obj_nodes_dict[node_id]["source_ids"]
+            sort = np.argsort(points_contri)[::-1]
+            sorted_source_ids = np.array(source_ids)[sort][:k]
+
+            all_crops = []
+            processed_images = {}
+            for source_id in sorted_source_ids:
+                img_id, obj_id = source_id[0], source_id[1]
+
+                # Read and preprocess the image only once per unique img_id
+                if img_id not in processed_images:
+                    img_path = img_dict[img_id]["img_path"]
+                    img = cv2.imread(img_path)
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    processed_images[img_id] = img
+                else:
+                    img = processed_images[img_id]
+
+                obj_bbox = img_dict[img_id]["objs"][int(obj_id)]["bbox"]
+                cropped_imgs = multi_scale_crop_image(img, obj_bbox, levels=[2])
+                all_crops.extend(cropped_imgs)
+
+            # Save the cropped images
+            for i, crop in enumerate(all_crops):
+                cv2.imwrite(
+                    os.path.join(room_path, f"{node_id}_{i}.jpg"),
+                    cv2.cvtColor(crop, cv2.COLOR_RGB2BGR),
+                )
+
+    return
 
 
 def save_roomwise_pcds(room_obj_assignments, obj_nodes_dict):
@@ -220,6 +379,8 @@ def save_roomwise_pcds(room_obj_assignments, obj_nodes_dict):
             merged_pcd += pcd
         o3d.io.write_point_cloud(os.path.join(save_path, f"{room_id}.pcd"), merged_pcd)
 
+    return
+
 
 def main():
     print(f"Working on dataset {dataset_dir} with version {version}...")
@@ -235,6 +396,7 @@ def main():
         img_dict = pickle.load(file)
 
     gt = load_gt_data(gt_dir, dataset_dir)
+    gt = update_gt_data(gt)
 
     print("Getting room masks...")
     room_masks = get_room_masks(gt)
@@ -247,6 +409,7 @@ def main():
     room_obj_assignments = get_top30_objs_per_room(room_obj_assignments, obj_nodes_dict)
 
     save_roomwise_pcds(room_obj_assignments, obj_nodes_dict)
+    save_roomwise_imgs(room_obj_assignments, obj_nodes_dict, img_dict)
 
     # save obj_node_dict.pkl
     with open(obj_nodes_path, "wb") as file:

@@ -64,7 +64,7 @@ params = {
     "merge_overlap_method": "nnratio",  # metric to use for merging overlapping nodes
     "merge_overall_thresh": 0.95,  # threshold for overall similarity while merging nodes in scene (0.95, 1.2)
     "obj_min_points": 50,  # minimum number of points in a node while filtering scene nodes
-    "obj_min_detections": 3,  # minimum number of detections in a node while filtering scene nodes
+    "obj_min_detections": 2,  # minimum number of detections in a node while filtering scene nodes
     "icp_threshold_multiplier": 1.5,  # threshold multiplier for ICP
     "icp_max_iter": 2000,  # maximum number of iterations for ICP
     "cam_mat": get_sim_cam_mat_with_fov(900, 900, 90),  # camera matrix

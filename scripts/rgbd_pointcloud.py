@@ -13,17 +13,18 @@ from scipy.spatial.transform import Rotation as R
 
 import open3d as o3d
 
+import argparse
 
-DATASET_DIRS = [
-    "/scratch/kumaraditya_gupta/Datasets/mp3d_test/q9vSo1VnCiC/sequence1/",
-    "/scratch/kumaraditya_gupta/Datasets/mp3d_test/sT4fr6TAbpF/sequence1/",
-    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/Pm6F8kyY3z2/sequence2/",
-    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/cV4RVeZvu5T/sequence2/",
-    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/e9zR4mvMWw7/sequence2/",
-    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/jh4fc5c5qoQ/sequence2/",
-    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/kEZ7cmS4wCh/sequence2/",
-    "/scratch/kumaraditya_gupta/Datasets/mp3d_train/sKLMLpTHeUy/sequence2/",
-]
+parser = argparse.ArgumentParser(description="Script parameters")
+parser.add_argument(
+    "--dataset_dir",
+    type=str,
+    default="/scratch/kumaraditya_gupta/Datasets/mp3d_train/sKLMLpTHeUy/sequence2/",
+    help="Directory for dataset",
+)
+parser.add_argument("--stride", type=int, default=1, help="Stride value")
+
+args = parser.parse_args()
 
 
 def get_pose(img_name, pose_dir):
@@ -121,31 +122,30 @@ def create_pcd_from_rgbd(img_files_list, imgs_dir, depth_dir, pose_dir):
 
 def main():
 
-    for dataset in DATASET_DIRS:
-        dataset_path = dataset
+    dataset_path = args.dataset_dir
 
-        imgs_dir = os.path.join(dataset_path, "color/")
-        depth_dir = os.path.join(dataset_path, "depth/")
-        pose_dir = os.path.join(dataset_path, "pose/")
-        # save_dir = os.path.join(dataset_path, "output_v1/")
-        save_dir = dataset_path
+    imgs_dir = os.path.join(dataset_path, "color/")
+    depth_dir = os.path.join(dataset_path, "depth/")
+    pose_dir = os.path.join(dataset_path, "pose/")
+    # save_dir = os.path.join(dataset_path, "output_v1/")
+    save_dir = dataset_path
 
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
 
-        img_files_list = [
-            f for f in os.listdir(imgs_dir) if os.path.isfile(os.path.join(imgs_dir, f))
-        ]
-        img_files_list = sorted(img_files_list, key=lambda x: int(x.split(".")[0]))
+    img_files_list = [
+        f for f in os.listdir(imgs_dir) if os.path.isfile(os.path.join(imgs_dir, f))
+    ]
+    img_files_list = sorted(img_files_list, key=lambda x: int(x.split(".")[0]))
 
-        stride = 2
-        img_files_list = img_files_list[::stride]
+    stride = args.stride
+    img_files_list = img_files_list[::stride]
 
-        pcd_global = create_pcd_from_rgbd(img_files_list, imgs_dir, depth_dir, pose_dir)
+    pcd_global = create_pcd_from_rgbd(img_files_list, imgs_dir, depth_dir, pose_dir)
 
-        o3d.io.write_point_cloud(
-            os.path.join(save_dir, "pointcloud_aligned.ply"), pcd_global
-        )
+    o3d.io.write_point_cloud(
+        os.path.join(save_dir, "pointcloud_aligned.ply"), pcd_global
+    )
 
 
 if __name__ == "__main__":
