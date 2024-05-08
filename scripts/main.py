@@ -51,7 +51,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 params = {
     "init_img_id": "001",  # initialize the scene with this image, overriden by the first image in img_dict
     "stride": args.stride,  # stride value for scene graph
-    "depth_scale": 655.35,  # depth scale for converting depth image to meters (std value: 1000.0)
+    "depth_scale": 1000,  # depth scale for converting depth image to meters (std value: 1000.0, 655.35 for habitat)
     "depth_dir": depth_dir,  # directory containing depth images
     "pose_dir": pose_dir,  # directory containing pose files
     "device": device,  # device to use for processing
@@ -64,12 +64,12 @@ params = {
     "merge_overlap_method": "nnratio",  # metric to use for merging overlapping nodes
     "merge_overall_thresh": 0.95,  # threshold for overall similarity while merging nodes in scene (0.95, 1.2)
     "obj_min_points": 50,  # minimum number of points in a node while filtering scene nodes
-    "obj_min_detections": 2,  # minimum number of detections in a node while filtering scene nodes
+    "obj_min_detections": 1,  # minimum number of detections in a node while filtering scene nodes
     "icp_threshold_multiplier": 1.5,  # threshold multiplier for ICP
     "icp_max_iter": 2000,  # maximum number of iterations for ICP
-    "cam_mat": get_sim_cam_mat_with_fov(900, 900, 90),  # camera matrix
+    "cam_mat": get_kinect_cam_mat(),  # camera matrix, get_sim_cam_mat_with_fov(900, 900, 90)
     "cam_height": 1.5,  # camera height
-    "img_size": (900, 900),  # image size
+    "img_size": (2048, 1536),  # image size, (900, 900)
     "k_exp": 0.1,  # k_exp for multi-scale cropping
     "k_img": 3,  # number of images to consider for multi-scale cropping
 }
@@ -178,12 +178,24 @@ def main():
         k: v for i, (k, v) in enumerate(img_dict.items()) if i % params["stride"] == 0
     }
 
-    # choose init_img_id as the first image in the img_dict
-    params["init_img_id"] = list(img_dict.keys())[0]
+    for img_id in img_dict.keys():
+        params["init_img_id"] = img_id
+        scene_obj_nodes = init_scene_nodes(
+            img_dict[params["init_img_id"]], params["init_img_id"], params
+        )
 
-    scene_obj_nodes = init_scene_nodes(
-        img_dict[params["init_img_id"]], params["init_img_id"], params
-    )
+        if len(scene_obj_nodes) > 0:
+            break
+
+    if len(scene_obj_nodes) == 0:
+        print("No objects detected in the scene")
+        return
+    # # choose init_img_id as the first image in the img_dict
+    # params["init_img_id"] = list(img_dict.keys())[0]
+
+    # scene_obj_nodes = init_scene_nodes(
+    #     img_dict[params["init_img_id"]], params["init_img_id"], params
+    # )
 
     print("Number of nodes in the scene: ", len(scene_obj_nodes))
 
@@ -228,7 +240,15 @@ def main():
     )
 
     # Save the modified dictionary using pickle
-    with open(os.path.join(output_dir, "scene_obj_nodes.pkl"), "wb") as f:
+    scene_obj_nodes_dir = os.path.join(output_dir, "scene_obj_nodes.pkl")
+
+    # if this file exists, rename the old filr to scene_obj_nodes_v1.pkl
+    if os.path.exists(scene_obj_nodes_dir):
+        os.rename(
+            scene_obj_nodes_dir, os.path.join(output_dir, "scene_obj_nodes_v1.pkl")
+        )
+
+    with open(scene_obj_nodes_dir, "wb") as f:
         pickle.dump(scene_obj_nodes, f)
 
 

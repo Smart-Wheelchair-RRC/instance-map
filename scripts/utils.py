@@ -60,7 +60,7 @@ def get_pose(img_name, params):
         pose = np.array(pose).astype(np.float32)
 
         # change pose from [x, y, z, qw, qx, qy, qz] to [x, y, z, qx, qy, qz, qw]
-        pose = np.concatenate((pose[:3], pose[4:], pose[3:4]))
+        # pose = np.concatenate((pose[:3], pose[4:], pose[3:4]))
     return pose
 
 
@@ -175,15 +175,15 @@ def create_point_cloud(img_id, obj_data, params, color=(1, 0, 0)):
     quat = pose[3:]
     rot = R.from_quat(quat).as_matrix()
 
-    # Apply rotation correction, to match the orientation z: backward, y: upward, and x: right
-    rot_ro_cam = np.eye(3)
-    rot_ro_cam[1, 1] = -1
-    rot_ro_cam[2, 2] = -1
+    # # Apply rotation correction, to match the orientation z: backward, y: upward, and x: right
+    # rot_ro_cam = np.eye(3)
+    # rot_ro_cam[1, 1] = -1
+    # rot_ro_cam[2, 2] = -1
 
-    rot = rot @ rot_ro_cam
+    # rot = rot @ rot_ro_cam
 
-    # Apply position correction
-    pos[1] += params["cam_height"]
+    # # Apply position correction
+    # pos[1] += params["cam_height"]
 
     # Create the pose matrix
     pose_matrix = np.eye(4)
@@ -199,13 +199,13 @@ def create_point_cloud(img_id, obj_data, params, color=(1, 0, 0)):
         np.tile(color, (points3d_global.shape[1], 1))
     )
 
-    # Additional rotation to get the points in the correct orientation
-    new_rot = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
-    new_rot_matrix = np.eye(4)
-    new_rot_matrix[:3, :3] = new_rot
+    # # Additional rotation to get the points in the correct orientation
+    # new_rot = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
+    # new_rot_matrix = np.eye(4)
+    # new_rot_matrix[:3, :3] = new_rot
 
-    # Apply new_rot to the point cloud using the transform function
-    pcd.transform(new_rot_matrix)
+    # # Apply new_rot to the point cloud using the transform function
+    # pcd.transform(new_rot_matrix)
 
     return pcd
 
@@ -316,7 +316,7 @@ def check_background(obj_data):
         "city",
         "blue",
         "skylight",
-        "hallway",
+        # "hallway",
         "bureau",
         "modern",
         "salon",

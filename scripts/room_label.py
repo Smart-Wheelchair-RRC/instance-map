@@ -24,6 +24,12 @@ parser.add_argument(
     help="Directory for GT data",
 )
 parser.add_argument(
+    "--updated_gt_dir",
+    type=str,
+    default="/scratch/kumaraditya_gupta/mp3d_gt_updated/",
+    help="Directory for updated GT data",
+)
+parser.add_argument(
     "--version", type=str, default="output_objs_v1", help="Version string"
 )
 
@@ -33,6 +39,7 @@ dataset_dir = args.dataset_dir
 version = args.version
 output_dir = os.path.join(dataset_dir, f"output_{version}")
 gt_dir = args.gt_dir
+updated_gt_dir = args.updated_gt_dir
 
 ALL_ROOM_TYPES = [
     "bathroom",
@@ -122,6 +129,66 @@ OUR_ROOM_DICT = {
     "none": 18,
 }
 
+FINAL_ROOM_TYPES = [
+    "bathroom",
+    "living room",
+    "dining room",
+    "bedroom",
+    "gym",
+    "staircase",
+    "kitchen",
+    "hallway",
+    "closet",
+    "laundry room",
+    "office",
+    "game room",
+    "utility room",
+    "garage",
+    "television room",
+    "family room",
+    "library",
+    "conference auditorium",
+    "lobby",
+    "classroom",
+    "lounge",
+    "spa",
+    "bar",
+    "other",
+]
+
+FINAL_ROOM_DICT = {
+    "bathroom": 0,
+    "toilet": 0,
+    "sauna": 21,
+    "bedroom": 3,
+    "closet": 8,
+    "dining": 2,
+    "entryway": 18,
+    "family": 15,
+    "tv": 14,
+    "living": 1,
+    "lounge": 20,
+    "recreation": 11,
+    "garage": 13,
+    "hallway": 7,
+    "library": 16,
+    "laundry": 9,
+    "utility": 12,
+    "kitchen": 6,
+    "meeting": 17,
+    "office": 10,
+    "porch": 23,
+    "stairs": 5,
+    "gym": 4,
+    "outdoor": 23,
+    "balcony": 23,
+    "bar": 22,
+    "other": 23,
+    "classroom": 19,
+    "junk": 23,
+    "none": 23,
+}
+
 
 def generate_pastel_color():
     # generate (r, g, b) tuple of random numbers between 0.5 and 1, truncate to 2 decimal places
@@ -142,20 +209,20 @@ def load_gt_data(gt_dir, dataset_dir):
 def update_gt_data(gt):
     # Maps from old room_label_id to new room_label_id
     old_to_new_room_id = {
-        ALL_ROOM_TYPES.index(room): OUR_ROOM_DICT[room] for room in OUR_ROOM_DICT
+        ALL_ROOM_TYPES.index(room): FINAL_ROOM_DICT[room] for room in FINAL_ROOM_DICT
     }
 
     # Dictionary to track the new instance number for each unique (new_room_id, old_instance) pair
     unique_instance_mapping = {}
 
     # New instance number for each new room ID
-    new_instance_counter = {i: 0 for i in range(0, len(OUR_ROOM_TYPES))}
+    new_instance_counter = {i: 0 for i in range(0, len(FINAL_ROOM_TYPES))}
 
     for point in gt:
         old_room_id = int(point[7])
         old_instance = int(point[8])
         new_room_id = old_to_new_room_id.get(
-            old_room_id, 18
+            old_room_id, 23
         )  # Default to 'other' if not found
 
         # Unique key for the original room_id and instance combination
@@ -170,6 +237,13 @@ def update_gt_data(gt):
         point[8] = unique_instance_mapping[unique_key]
 
     return gt
+
+
+def save_updated_gt_data(gt, updated_gt_dir, dataset_dir):
+    dataset_name = dataset_dir.split("/")[-3]
+    gt_file_name = f"{dataset_name}_xyz_rgb_o_r_inst.npy"
+    np.save(os.path.join(updated_gt_dir, gt_file_name), gt)
+    return
 
 
 def get_room_masks(gt):
@@ -243,7 +317,7 @@ def assign_room_to_obj(obj_nodes_dict, kd_trees):
         node_data["room_id"] = assigned_room
 
         room_label_id = assigned_room.split("_")[0]
-        node_data["room_label"] = OUR_ROOM_TYPES[int(room_label_id)]
+        node_data["room_label"] = FINAL_ROOM_TYPES[int(room_label_id)]
 
     return room_obj_assignments, obj_nodes_dict
 
@@ -385,6 +459,14 @@ def save_roomwise_pcds(room_obj_assignments, obj_nodes_dict):
 def main():
     print(f"Working on dataset {dataset_dir} with version {version}...")
 
+    # in output_dir, delete 3 dirs: imgs_roomwise, pcds_roomwise, pcds_roomwise_merged
+    if os.path.exists(os.path.join(output_dir, "imgs_roomwise")):
+        os.system(f"rm -r {os.path.join(output_dir, 'imgs_roomwise')}")
+    if os.path.exists(os.path.join(output_dir, "pcds_roomwise")):
+        os.system(f"rm -r {os.path.join(output_dir, 'pcds_roomwise')}")
+    if os.path.exists(os.path.join(output_dir, "pcds_roomwise_merged")):
+        os.system(f"rm -r {os.path.join(output_dir, 'pcds_roomwise_merged')}")
+
     print("Loading obj_nodes.pkl...")
     obj_nodes_path = os.path.join(output_dir, "scene_obj_nodes.pkl")
     with open(obj_nodes_path, "rb") as file:
@@ -397,6 +479,10 @@ def main():
 
     gt = load_gt_data(gt_dir, dataset_dir)
     gt = update_gt_data(gt)
+    if not os.path.exists(updated_gt_dir):
+        os.makedirs(updated_gt_dir)
+    # print("Saving updated gt data...")
+    # save_updated_gt_data(gt, updated_gt_dir, dataset_dir)
 
     print("Getting room masks...")
     room_masks = get_room_masks(gt)
@@ -425,3 +511,18 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    # if os.path.exists(os.path.join(output_dir, "room_obj_assignments_v2.pkl")):
+    #     os.rename(
+    #         os.path.join(output_dir, "room_obj_assignments.pkl"),
+    #         os.path.join(output_dir, "room_obj_assignments_v1.pkl"),
+    #     )
+
+    #     os.rename(
+    #         os.path.join(output_dir, "room_obj_assignments_v2.pkl"),
+    #         os.path.join(output_dir, "room_obj_assignments.pkl"),
+    #     )
+
+    # else:
+    #     print(output_dir)
+    #     print("room_obj_assignments_v2.pkl does not exist")

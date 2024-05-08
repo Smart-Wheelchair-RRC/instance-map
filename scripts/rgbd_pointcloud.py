@@ -19,7 +19,7 @@ parser = argparse.ArgumentParser(description="Script parameters")
 parser.add_argument(
     "--dataset_dir",
     type=str,
-    default="/scratch/kumaraditya_gupta/Datasets/mp3d_train/sKLMLpTHeUy/sequence2/",
+    default="/scratch/kumaraditya_gupta/Datasets/wheelchair-azure-lidar-26-04-2024",
     help="Directory for dataset",
 )
 parser.add_argument("--stride", type=int, default=1, help="Stride value")
@@ -40,7 +40,7 @@ def get_pose(img_name, pose_dir):
         pose = np.array(pose).astype(np.float32)
 
         # change pose from [x, y, z, qw, qx, qy, qz] to [x, y, z, qx, qy, qz, qw]
-        pose = np.concatenate((pose[:3], pose[4:], pose[3:4]))
+        # pose = np.concatenate((pose[:3], pose[4:], pose[3:4]))
     return pose
 
 
@@ -59,20 +59,29 @@ def create_pcd_from_rgbd(img_files_list, imgs_dir, depth_dir, pose_dir):
 
         pose = get_pose(img_id, pose_dir)
 
+        # intrinsics = o3d.camera.PinholeCameraIntrinsic(
+        #     900,  # width
+        #     900,  # height
+        #     450.0,  # fx
+        #     450.0,  # fy
+        #     450.0,  # cx
+        #     450.0,  # cy
+        # )
+
         intrinsics = o3d.camera.PinholeCameraIntrinsic(
-            900,  # width
-            900,  # height
-            450.0,  # fx
-            450.0,  # fy
-            450.0,  # cx
-            450.0,  # cy
+            2048,  # width
+            1536,  # height
+            9.7096624755859375e02,  # fx
+            9.7109600830078125e02,  # fy
+            1.0272059326171875e03,  # cx
+            7.7529718017578125e02,  # cy
         )
 
         # Generate point cloud from RGB-D image
         rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
             rgb_image,
             depth_image,
-            depth_scale=655.35,
+            depth_scale=1000,
             depth_trunc=10.0,
             convert_rgb_to_intensity=False,
         )
@@ -86,30 +95,34 @@ def create_pcd_from_rgbd(img_files_list, imgs_dir, depth_dir, pose_dir):
         quat = pose[3:]
         rot = R.from_quat(quat).as_matrix()
 
-        # Apply rotation correction, to match the orientation z: backward, y: upward, and x: right
-        rot_ro_cam = np.eye(3)
-        rot_ro_cam[1, 1] = -1
-        rot_ro_cam[2, 2] = -1
+        # # Apply rotation correction, to match the orientation z: backward, y: upward, and x: right
+        # rot_ro_cam = np.eye(3)
+        # rot_ro_cam[1, 1] = -1
+        # rot_ro_cam[2, 2] = -1
 
-        combined_rot = rot @ rot_ro_cam
+        # combined_rot = rot @ rot_ro_cam
 
-        cam_height = 1.50
-        pos[1] += cam_height
+        # cam_height = 1.50
+        # pos[1] += cam_height
 
         # Create the pose matrix
         pose_matrix = np.eye(4)
-        pose_matrix[:3, :3] = combined_rot
+        pose_matrix[:3, :3] = rot
         pose_matrix[:3, 3] = pos.reshape(-1)
+        final_pose_matrix = pose_matrix
 
-        pcd.transform(pose_matrix)
+        # # Additional rotation to get the points in the correct orientation
+        # new_rot = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
+        # new_rot_matrix = np.eye(4)
+        # new_rot_matrix[:3, :3] = new_rot
 
-        # Additional rotation to get the points in the correct orientation
-        new_rot = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])
-        new_rot_matrix = np.eye(4)
-        new_rot_matrix[:3, :3] = new_rot
+        # # Apply the pose to the point cloud using the transform function
+        # final_pose_matrix = new_rot_matrix @ pose_matrix
 
-        # Apply new_rot to the point cloud using the transform function
-        pcd.transform(new_rot_matrix)
+        pcd.transform(final_pose_matrix)
+
+        # # Apply new_rot to the point cloud using the transform function
+        # pcd.transform(new_rot_matrix)
 
         pcd = pcd.voxel_down_sample(voxel_size=0.05)
 
@@ -124,7 +137,7 @@ def main():
 
     dataset_path = args.dataset_dir
 
-    imgs_dir = os.path.join(dataset_path, "color/")
+    imgs_dir = os.path.join(dataset_path, "rgb/")
     depth_dir = os.path.join(dataset_path, "depth/")
     pose_dir = os.path.join(dataset_path, "pose/")
     # save_dir = os.path.join(dataset_path, "output_v1/")

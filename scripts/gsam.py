@@ -386,7 +386,7 @@ def main():
     # with open(pickle_file_path, "rb") as file:
     #     img_dict = pickle.load(file)
 
-    imgs_dir = os.path.join(dataset_dir, "color")
+    imgs_dir = os.path.join(dataset_dir, "rgb")
     img_files = [
         f for f in os.listdir(imgs_dir) if os.path.isfile(os.path.join(imgs_dir, f))
     ]
